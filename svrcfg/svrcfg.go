@@ -1,9 +1,9 @@
 package svrcfg
 
 import (
-	"ffsf/logger"
 	"github.com/golang/protobuf/proto"
 	"github.com/samuel/go-zookeeper/zk"
+	"github.com/silentd0g/ffsf/logger"
 	"io/ioutil"
 	"os"
 	"strings"

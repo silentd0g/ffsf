@@ -1,9 +1,9 @@
 package wsserver
 
 import (
-	"ffsf/logger"
 	"fmt"
 	"github.com/gorilla/websocket"
+	"github.com/silentd0g/ffsf/logger"
 	"net/http"
 	"strconv"
 	"sync"

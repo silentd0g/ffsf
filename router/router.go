@@ -2,12 +2,12 @@ package router
 
 import (
 	"errors"
-	"ffsf/bus"
-	"ffsf/logger"
-	"ffsf/sharedstruct"
-	"ffsf/svrinstmgr"
 	"fmt"
 	"github.com/golang/protobuf/proto"
+	"github.com/silentd0g/ffsf/bus"
+	"github.com/silentd0g/ffsf/logger"
+	"github.com/silentd0g/ffsf/sharedstruct"
+	"github.com/silentd0g/ffsf/svrinstmgr"
 )
 
 // router

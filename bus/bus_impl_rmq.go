@@ -2,9 +2,9 @@ package bus
 
 import (
 	"encoding/binary"
-	"ffsf/logger"
-	"ffsf/sharedstruct"
 	"fmt"
+	"github.com/silentd0g/ffsf/logger"
+	"github.com/silentd0g/ffsf/sharedstruct"
 	"github.com/streadway/amqp"
 	"time"
 )

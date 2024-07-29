@@ -1,8 +1,8 @@
 package transaction
 
 import (
-	"ffsf/cmd_handler"
-	"ffsf/sharedstruct"
+	"github.com/silentd0g/ffsf/cmd_handler"
+	"github.com/silentd0g/ffsf/sharedstruct"
 )
 
 type ITransactionMgr interface {

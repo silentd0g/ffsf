@@ -1,8 +1,8 @@
 package application
 
 import (
-	"ffsf/datetime"
-	"ffsf/logger"
+	"github.com/silentd0g/ffsf/datetime"
+	"github.com/silentd0g/ffsf/logger"
 	"os"
 	"time"
 )

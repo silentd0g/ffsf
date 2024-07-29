@@ -2,13 +2,13 @@ package transaction
 
 import (
 	"errors"
-	"ffsf/cmd_handler"
-	"ffsf/logger"
-	"ffsf/router"
-	"ffsf/sharedstruct"
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
+	"github.com/silentd0g/ffsf/cmd_handler"
+	"github.com/silentd0g/ffsf/logger"
+	"github.com/silentd0g/ffsf/router"
+	"github.com/silentd0g/ffsf/sharedstruct"
 	"time"
 )
 

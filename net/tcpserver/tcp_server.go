@@ -2,9 +2,9 @@ package tcpserver
 
 import (
 	"bytes"
-	"ffsf/logger"
 	"fmt"
 	"github.com/golang/glog"
+	"github.com/silentd0g/ffsf/logger"
 	"io"
 	"net"
 	"strconv"

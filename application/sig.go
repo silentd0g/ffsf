@@ -4,7 +4,7 @@
 package application
 
 import (
-	"ffsf/logger"
+	"github.com/silentd0g/ffsf/logger"
 	"os"
 	"os/signal"
 	"syscall"

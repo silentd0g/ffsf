@@ -1,10 +1,10 @@
 package transaction
 
 import (
-	"ffsf/cmd_handler"
-	"ffsf/logger"
-	"ffsf/sharedstruct"
 	"github.com/golang/protobuf/proto"
+	"github.com/silentd0g/ffsf/cmd_handler"
+	"github.com/silentd0g/ffsf/logger"
+	"github.com/silentd0g/ffsf/sharedstruct"
 	"time"
 )
 
