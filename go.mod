@@ -1,4 +1,4 @@
-module ffsf
+module github.com/silentd0g/ffsf
 
 go 1.21.0
 
