@@ -98,7 +98,7 @@ func (t *Transaction) ParseMsg(data []byte, msg proto.Message) error {
 		t.Warningf("Fail to unmarshal req | %v", err)
 		return err
 	}
-	t.Debugf("parse msg. {msg:%s}", msg.String())
+	t.Debugf("parse msg: %#v", msg)
 	return nil
 }
 
@@ -139,7 +139,7 @@ func (t *Transaction) SendPbMsgByBusId(busId uint32, cmd uint32, req proto.Messa
 }
 
 func (t *Transaction) BroadcastByServerType(svrType uint32, cmd uint32, req proto.Message) error {
-	t.Debugf("BroadcastByServerType. {req:%s}", req.String())
+	t.Debugf("BroadcastByServerType: %#v", req)
 	t.sendSeq += 1
 	err := router.BroadcastPbMsgByServerType(svrType, t.Uid(), cmd, t.sendSeq, req)
 	if err != nil {
@@ -149,7 +149,7 @@ func (t *Transaction) BroadcastByServerType(svrType uint32, cmd uint32, req prot
 }
 
 func (t *Transaction) CallMsgByBusId(busId uint32, cmd uint32, req proto.Message, rsp proto.Message) error {
-	t.Debugf("CallMsgByBusId. {req:%s}", req.String())
+	t.Debugf("CallMsgByBusId: %#v", req)
 	t.sendSeq += 1
 	err := router.SendPbMsgByBusId(busId, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
