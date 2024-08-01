@@ -71,7 +71,7 @@ func (m *TransactionMgr) ProcessSSPacket(packet *sharedstruct.SSPacket) {
 func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message) {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
-		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd,%v, msg:%v}", uid, cmd, pbMsg)
+		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd,%v, msg:%s}", uid, cmd, pbMsg.String())
 		return
 	}
 
