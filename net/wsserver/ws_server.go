@@ -116,13 +116,19 @@ func (s *WsServer) WsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *WsServer) InitAndRun(ip string, port int, handler IWsServerEventHandler) error {
+func (s *WsServer) InitAndRun(ip string, port int, handler IWsServerEventHandler, useTls bool, certFile, keyFile string) error {
 	s.Clients = make(map[*websocket.Conn]ClientInfo)
 	s.handler = handler
 
 	http.HandleFunc("/", s.WsHandler)
 	addr := ip + ":" + strconv.Itoa(port)
-	go http.ListenAndServe(addr, nil)
+	if useTls {
+		logger.Infof("Listening with TLS. {addr:%s, certFile:%s, keyFile:%s}", addr, certFile, keyFile)
+		go http.ListenAndServeTLS(addr, certFile, keyFile, nil)
+	} else {
+		logger.Infof("Listening. {addr:%s}", addr)
+		go http.ListenAndServe(addr, nil)
+	}
 	return nil
 }
 
