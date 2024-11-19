@@ -18,9 +18,9 @@ type WsPacketSvr struct {
 	handler IWsPacketSvrEventHandler
 }
 
-func (s *WsPacketSvr) InitAndRun(ip string, port int, handler IWsPacketSvrEventHandler) error {
+func (s *WsPacketSvr) InitAndRun(ip string, port int, handler IWsPacketSvrEventHandler, useTls bool, certFile, keyFile string) error {
 	s.handler = handler
-	return s.WsServer.InitAndRun(ip, port, s)
+	return s.WsServer.InitAndRun(ip, port, s, useTls, certFile, keyFile)
 }
 
 func (s *WsPacketSvr) OnConn(conn *websocket.Conn) {
