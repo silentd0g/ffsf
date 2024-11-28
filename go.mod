@@ -10,4 +10,7 @@ require (
 	github.com/streadway/amqp v1.1.0
 )
 
-require google.golang.org/protobuf v1.33.0 // indirect
+require (
+	golang.org/x/text v0.20.0 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
+)
