@@ -1,13 +1,15 @@
 package svrcfg
 
 import (
-	"github.com/golang/protobuf/proto"
-	"github.com/samuel/go-zookeeper/zk"
-	"github.com/silentd0g/ffsf/logger"
-	"io/ioutil"
+	"io"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/samuel/go-zookeeper/zk"
+	"github.com/silentd0g/ffsf/logger"
+	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 )
 
 // 从zookeeper节点获取配置信息
@@ -54,7 +56,7 @@ func ParseFromFile(config string, msg proto.Message) error {
 
 	defer file.Close()
 
-	content, err := ioutil.ReadAll(file)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		logger.Errorf("read file error. {file:%s, err:%s}", config, err.Error())
 		return err
@@ -64,5 +66,5 @@ func ParseFromFile(config string, msg proto.Message) error {
 }
 
 func ParseFromString(content string, msg proto.Message) error {
-	return proto.UnmarshalText(content, msg)
+	return prototext.Unmarshal([]byte(content), msg)
 }

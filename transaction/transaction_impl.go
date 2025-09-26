@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/golang/protobuf/proto"
 	"github.com/silentd0g/ffsf/cmd_handler"
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/router"
 	"github.com/silentd0g/ffsf/sharedstruct"
+	"google.golang.org/protobuf/proto"
 )
 
 // 使用：

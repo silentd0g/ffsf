@@ -3,11 +3,12 @@ package router
 import (
 	"errors"
 	"fmt"
-	"github.com/golang/protobuf/proto"
+
 	"github.com/silentd0g/ffsf/bus"
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/sharedstruct"
 	"github.com/silentd0g/ffsf/svrinstmgr"
+	"google.golang.org/protobuf/proto"
 )
 
 // router
@@ -72,7 +73,7 @@ func SendMsg(packetHeader *sharedstruct.SSPacketHeader, packetBody []byte) error
 }
 
 func SendPbMsg(packetHeader *sharedstruct.SSPacketHeader, pbMsg proto.Message) error {
-	logger.Debugf("SendPbMsg. {msg:%v}", pbMsg.String())
+	logger.Debugf("SendPbMsg. {msg:%v}", pbMsg)
 	packetBody, err := proto.Marshal(pbMsg)
 	if err != nil {
 		return err

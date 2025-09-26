@@ -3,6 +3,7 @@ package transaction
 import (
 	"github.com/silentd0g/ffsf/cmd_handler"
 	"github.com/silentd0g/ffsf/sharedstruct"
+	"google.golang.org/protobuf/proto"
 )
 
 type ITransactionMgr interface {
@@ -16,4 +17,5 @@ type ITransactionMgr interface {
 
 	RegisterCmd(cmd uint32, cmdHandler cmd_handler.ICmdHandler)
 	ProcessSSPacket(packet *sharedstruct.SSPacket)
+	SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message)
 }

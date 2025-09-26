@@ -1,7 +1,7 @@
 package cmd_handler
 
 import (
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 type IContext interface {

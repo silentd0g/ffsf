@@ -1,11 +1,12 @@
 package transaction
 
 import (
-	"github.com/golang/protobuf/proto"
+	"time"
+
 	"github.com/silentd0g/ffsf/cmd_handler"
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/sharedstruct"
-	"time"
+	"google.golang.org/protobuf/proto"
 )
 
 // 使用：
@@ -71,7 +72,7 @@ func (m *TransactionMgr) ProcessSSPacket(packet *sharedstruct.SSPacket) {
 func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message) {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
-		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd,%v, msg:%s}", uid, cmd, pbMsg.String())
+		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd,%v, err:%s}", uid, cmd, err.Error())
 		return
 	}
 
