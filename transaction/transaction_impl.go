@@ -3,13 +3,14 @@ package transaction
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/proto"
 	"github.com/silentd0g/ffsf/cmd_handler"
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/router"
 	"github.com/silentd0g/ffsf/sharedstruct"
-	"time"
 )
 
 // 使用：
@@ -183,7 +184,7 @@ func (t *Transaction) waitRsp(dstSvrType uint32, dstSvrIns uint32, cmd uint32,
 					dstSvrType, dstSvrIns, t.Uid(), cmd, req, packet.Header)
 			} else {
 				err := proto.Unmarshal(packet.Body, rsp)
-				t.Debugf("Received a rsp: %#v", rsp)
+				t.Debugf("Received a rsp: {cmd:%v}", cmd)
 				return err
 			}
 		}

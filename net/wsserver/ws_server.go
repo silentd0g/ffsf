@@ -2,12 +2,13 @@ package wsserver
 
 import (
 	"fmt"
-	"github.com/gorilla/websocket"
-	"github.com/silentd0g/ffsf/logger"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/silentd0g/ffsf/logger"
 )
 
 type IWsServerEventHandler interface {
@@ -124,38 +125,46 @@ func (s *WsServer) InitAndRun(ip string, port int, handler IWsServerEventHandler
 	addr := ip + ":" + strconv.Itoa(port)
 	if useTls {
 		logger.Infof("Listening with TLS. {addr:%s, certFile:%s, keyFile:%s}", addr, certFile, keyFile)
-		go http.ListenAndServeTLS(addr, certFile, keyFile, nil)
+		go s.ListenAndServeTLS(addr, certFile, keyFile)
 	} else {
 		logger.Infof("Listening. {addr:%s}", addr)
-		go http.ListenAndServe(addr, nil)
+		go s.ListenAndServe(addr)
 	}
 	return nil
 }
 
+func (s *WsServer) ListenAndServe(addr string) {
+	err := http.ListenAndServe(addr, nil)
+	if err != nil {
+		logger.Errorf("ListenAndServe failed. {err:%v}", err)
+	}
+}
+
+func (s *WsServer) ListenAndServeTLS(addr string, certFile string, keyFile string) {
+	err := http.ListenAndServeTLS(addr, certFile, keyFile, nil)
+	if err != nil {
+		logger.Errorf("ListenAndServeTLS failed. {err:%v}", err)
+	}
+}
+
 func (s *WsServer) runConnWrite(c *websocket.Conn) {
-	for {
-		select {
-		case data, ok := <-s.Clients[c].chanWrite:
-			if !ok {
-				logger.Debugf("chanWrite is closed. {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
-				return
-			}
-			if data == nil {
-				logger.Infof("A 'nil' is passed to chanWrite to close conn. {local:%v, remote:%v}",
-					c.LocalAddr(), c.RemoteAddr())
-				c.Close()
-				s.removeClient(c)
-				return
-			}
-			err := c.WriteMessage(websocket.BinaryMessage, data)
-			if err != nil {
-				logger.Errorf("WriteMessage failed. {err:%v, local:%v, remote:%v}", err, c.LocalAddr(), c.RemoteAddr())
-				c.Close()
-				s.removeClient(c)
-				return
-			}
+	for data := range s.Clients[c].chanWrite {
+		if data == nil {
+			logger.Infof("A 'nil' is passed to chanWrite to close conn. {local:%v, remote:%v}",
+				c.LocalAddr(), c.RemoteAddr())
+			c.Close()
+			s.removeClient(c)
+			return
+		}
+		err := c.WriteMessage(websocket.BinaryMessage, data)
+		if err != nil {
+			logger.Errorf("WriteMessage failed. {err:%v, local:%v, remote:%v}", err, c.LocalAddr(), c.RemoteAddr())
+			c.Close()
+			s.removeClient(c)
+			return
 		}
 	}
+	logger.Debugf("chanWrite is closed. {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 }
 
 func (s *WsServer) addClient(c *websocket.Conn) {
