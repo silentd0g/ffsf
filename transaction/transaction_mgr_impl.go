@@ -72,7 +72,7 @@ func (m *TransactionMgr) ProcessSSPacket(packet *sharedstruct.SSPacket) {
 func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message) {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
-		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd,%v, err:%s}", uid, cmd, err.Error())
+		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd:0x%x, err:%s}", uid, cmd, err.Error())
 		return
 	}
 
@@ -171,7 +171,7 @@ func (m *TransactionMgr) processSSPacket(packet *sharedstruct.SSPacket) int32 {
 
 		cmdHandler, in := m.cmdHandlers[cmd]
 		if !in {
-			logger.Errorf("Can't find cmd handler. {cmd:%v, map:%v}", cmd, m.cmdHandlers)
+			logger.Errorf("Can't find cmd handler. {cmd:0x%x, map:%v}", cmd, m.cmdHandlers)
 			return -2
 		}
 

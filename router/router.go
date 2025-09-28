@@ -93,7 +93,7 @@ func SendMQAck(queueTag uint64) error {
 
 func SendMsgByBusId(busId uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
 	if busId == 0 {
-		return fmt.Errorf("server instance is 0, fail to send {busId: %v, uid: %v, cmd: %v}", busId, uid, cmd)
+		return fmt.Errorf("server instance is 0, fail to send {busId: %v, uid: %v, cmd: 0x%x}", busId, uid, cmd)
 	}
 
 	packetHeader := sharedstruct.SSPacketHeader{
@@ -127,7 +127,7 @@ func SendPbMsgByBusIdSimple(busId uint32, uid uint64, cmd uint32, pbMsg proto.Me
 func SendMsgBySvrType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
 	dstBusId := severInstanceMgr.GetSvrInsBySvrType(svrType, uid)
 	if dstBusId == 0 {
-		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: %v}", svrType, uid, cmd)
+		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: 0x%x}", svrType, uid, cmd)
 	}
 
 	return SendMsgByBusId(dstBusId, uid, cmd, sendSeq, srcTransId, data)
@@ -148,7 +148,7 @@ func SendPbMsgBySvrTypeSimple(svrType uint32, uid uint64, cmd uint32, pbMsg prot
 func BroadcastMsgByServerType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, data []byte) error {
 	instances := severInstanceMgr.GetAllSvrInsBySvrType(svrType)
 	if len(instances) == 0 {
-		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: %v}", svrType, uid, cmd)
+		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: 0x%x}", svrType, uid, cmd)
 	}
 
 	for _, inst := range instances {

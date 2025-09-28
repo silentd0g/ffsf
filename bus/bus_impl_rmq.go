@@ -3,10 +3,11 @@ package bus
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
+
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/sharedstruct"
 	"github.com/streadway/amqp"
-	"time"
 )
 
 type BusImplRabbitMQ struct {
@@ -65,7 +66,7 @@ func (b *BusImplRabbitMQ) Send(dstBusId uint32, data1 []byte, data2 []byte) erro
 	pos += byteLenOfBusPacketHeader()
 	copy(msg.data[pos:], data1)
 	pos += len(data1)
-	if data2 != nil && len(data2) > 0 {
+	if len(data2) > 0 {
 		copy(msg.data[pos:], data2)
 		pos += len(data2)
 	}
@@ -237,8 +238,6 @@ func (b *BusImplRabbitMQ) process(rabbitmqAddr string, myQueueName string) error
 			}
 		}
 	}
-
-	return nil
 }
 
 func (b *BusImplRabbitMQ) run(rabbitmqAddr string) {
@@ -250,7 +249,7 @@ func (b *BusImplRabbitMQ) run(rabbitmqAddr string) {
 
 		err := b.process(rabbitmqAddr, myQueueName)
 
-		if time.Now().Sub(processStartTime) > time.Minute {
+		if time.Since(processStartTime) > time.Minute {
 			retryCount = 0 // 正常运行1分钟以上，则重置retryCount
 		}
 		retryCount++

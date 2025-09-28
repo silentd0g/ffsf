@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/samuel/go-zookeeper/zk"
-	"github.com/silentd0g/ffsf/bus"
-	"github.com/silentd0g/ffsf/logger"
-	"github.com/silentd0g/ffsf/misc"
 	"math/rand"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/samuel/go-zookeeper/zk"
+	"github.com/silentd0g/ffsf/bus"
+	"github.com/silentd0g/ffsf/logger"
+	"github.com/silentd0g/ffsf/misc"
 )
 
 // 这个包通过zookeeper管理在线的服务器进程实例，
@@ -114,7 +115,7 @@ func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk
 				if err != nil {
 					logger.Fatalf("Create node error. {nodeName:%s, err:%v}", nodeName, err)
 					panic("failed to create node")
-					return
+
 				}
 
 				// 监听子节点的变化
@@ -122,7 +123,7 @@ func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk
 				if err != nil {
 					logger.Fatalf("Failed to watch online nodes. {err:%v}", err)
 					panic("failed to watch online node")
-					return
+
 				}
 			}
 		case eventNode, ok := <-chanNodeEvent: // 节点变化的事件
@@ -137,7 +138,6 @@ func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk
 					} else {
 						logger.Fatalf("Failed to watch online nodes. {err:%v}", err)
 						panic("failed to watch online node")
-						return
 					}
 				}
 			}

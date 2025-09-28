@@ -168,23 +168,23 @@ func (t *Transaction) waitRsp(dstSvrType uint32, dstSvrIns uint32, cmd uint32,
 	for {
 		select {
 		case <-ti.C:
-			glog.Errorf("timeout to CallMsgBySvrType {svrType:%v, svrIns:%v, uid:%v, cmd:%v, req:%#v}",
+			glog.Errorf("timeout to CallMsgBySvrType {svrType:%v, svrIns:%v, uid:%v, cmd:0x%x, req:%#v}",
 				dstSvrType, dstSvrIns, t.Uid(), cmd, req)
 			return errors.New("timeout")
 		case packet, ok := <-t.chanIn:
 			if !ok {
 				glog.Errorf("Failed to CallMsgBySvrType as chanInPacket is closed "+
-					"{svrType:%v, svrIns:%v, uid:%v, cmd:%v, req:%#v}",
+					"{svrType:%v, svrIns:%v, uid:%v, cmd:0x%x, req:%#v}",
 					dstSvrType, dstSvrIns, t.Uid(), cmd, req)
 				return errors.New("channel is closed")
 			}
 			if packet.Header.CmdSeq != t.sendSeq || packet.Header.Cmd != cmd+1 {
 				glog.Warningf("Received a packet which is not what I'm waiting for "+
-					"{dstSvrType:%v, dstSvrIns:%v, uid:%v, cmd:%v, req:%#v, recvPacket:%#v}",
+					"{dstSvrType:%v, dstSvrIns:%v, uid:%v, cmd:0x%x, req:%#v, recvPacket:%#v}",
 					dstSvrType, dstSvrIns, t.Uid(), cmd, req, packet.Header)
 			} else {
 				err := proto.Unmarshal(packet.Body, rsp)
-				t.Debugf("Received a rsp: {cmd:%v}", cmd)
+				t.Debugf("Received a rsp: {cmd:0x%x}", cmd)
 				return err
 			}
 		}
