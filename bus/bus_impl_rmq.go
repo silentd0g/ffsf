@@ -12,6 +12,7 @@ import (
 
 type BusImplRabbitMQ struct {
 	selfBusId uint32
+	queueName string
 	timeout   time.Duration
 	chanOut   chan outMsg
 	chanAck   chan uint64
@@ -22,6 +23,7 @@ type BusImplRabbitMQ struct {
 func NewBusImplRabbitMQ(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr string) *BusImplRabbitMQ {
 	impl := new(BusImplRabbitMQ)
 	impl.selfBusId = selfBusId
+	impl.queueName = calcQueueName(selfBusId)
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan uint64, 10000)
@@ -34,6 +36,7 @@ func NewBusImplRabbitMQ(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr str
 func NewBusImplRabbitMQManualAck(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr string) *BusImplRabbitMQ {
 	impl := new(BusImplRabbitMQ)
 	impl.selfBusId = selfBusId
+	impl.queueName = calcQueueName(selfBusId)
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan uint64, 10000)
@@ -152,7 +155,7 @@ func sendToMsgChan(ch chan outMsg, msg outMsg, timeout time.Duration) bool {
 	return true
 }
 
-func (b *BusImplRabbitMQ) process(rabbitmqAddr string, myQueueName string) error {
+func (b *BusImplRabbitMQ) process(rabbitmqAddr string) error {
 	conn, err := amqp.Dial(rabbitmqAddr)
 	if err != nil {
 		return fmt.Errorf("failed to connect MQ {addr:%v} | %v", rabbitmqAddr, err)
@@ -171,7 +174,7 @@ func (b *BusImplRabbitMQ) process(rabbitmqAddr string, myQueueName string) error
 		"x-max-length-bytes": int32(10 * 1024 * 1024), // 消息队列所有包体大小（字节数）总和限制
 		"x-overflow":         "reject-publish",        // 消息队列已满时的处理策略：新消息发送失败
 	}
-	q, err := ch.QueueDeclare(myQueueName, false, false, false, false, queueArguments)
+	q, err := ch.QueueDeclare(b.queueName, false, false, false, false, queueArguments)
 	if err != nil {
 		return fmt.Errorf("failed to declare a queue | %v", err)
 	}
@@ -241,13 +244,11 @@ func (b *BusImplRabbitMQ) process(rabbitmqAddr string, myQueueName string) error
 }
 
 func (b *BusImplRabbitMQ) run(rabbitmqAddr string) {
-	myQueueName := calcQueueName(b.selfBusId)
-
 	retryCount := 0
 	for {
 		processStartTime := time.Now()
 
-		err := b.process(rabbitmqAddr, myQueueName)
+		err := b.process(rabbitmqAddr)
 
 		if time.Since(processStartTime) > time.Minute {
 			retryCount = 0 // 正常运行1分钟以上，则重置retryCount
