@@ -8,6 +8,10 @@ func CreateBus(implType string, selfBusId uint32, onRecvMsg MsgHandler, args ...
 		return NewBusImplRabbitMQ(selfBusId, onRecvMsg, args[0].(string))
 	case "rabbitmq_manual_ack":
 		return NewBusImplRabbitMQManualAck(selfBusId, onRecvMsg, args[0].(string))
+	case "kafka":
+		return NewBusImplKafka(selfBusId, onRecvMsg, args[0].(string))
+	case "kafka_manual_ack":
+		return NewBusImplKafkaManualAck(selfBusId, onRecvMsg, args[0].(string))
 	default:
 		return nil
 	}

@@ -29,6 +29,21 @@ func SelfSvrType() uint32 {
 // type CbOnRecvSSPacket func(*sharedstruct.SSPacketHeader, []byte)
 type CbOnRecvSSPacket func(*sharedstruct.SSPacket) // frameMsg的所有权，归回调函数
 
+// func InitAndRun(mqType string, selfBusId string, cb CbOnRecvSSPacket, args ...interface{}) error {
+// 	routeRules map[uint32]uint32, zookeeperAddr string) error {
+// 	err := severInstanceMgr.InitAndRun(selfBusId, routeRules, zookeeperAddr)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	router.cbOnRecvSSPacket = cb
+// 	router.busImpl = bus.CreateBus("rabbitmq", bus.IpStringToInt(selfBusId), onRecvBusMsg, rabbitmqAddr)
+// 	if router.busImpl == nil {
+// 		return errors.New("failed to create bus implement")
+// 	}
+// 	return nil
+// }
+
 // cb CbOnRecvSSPacket将由底层(bus)协程调用
 func InitAndRun(selfBusId string, cb CbOnRecvSSPacket, rabbitmqAddr string,
 	routeRules map[uint32]uint32, zookeeperAddr string) error {
@@ -54,6 +69,36 @@ func InitAndRunMQManualAck(selfBusId string, cb CbOnRecvSSPacket, rabbitmqAddr s
 
 	router.cbOnRecvSSPacket = cb
 	router.busImpl = bus.CreateBus("rabbitmq_manual_ack", bus.IpStringToInt(selfBusId), onRecvBusMsg, rabbitmqAddr)
+	if router.busImpl == nil {
+		return errors.New("failed to create bus implement")
+	}
+	return nil
+}
+
+func InitAndRunKafka(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr string,
+	routeRules map[uint32]uint32, zookeeperAddr string) error {
+	err := severInstanceMgr.InitAndRun(selfBusId, routeRules, zookeeperAddr)
+	if err != nil {
+		return err
+	}
+
+	router.cbOnRecvSSPacket = cb
+	router.busImpl = bus.CreateBus("kafka", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddr)
+	if router.busImpl == nil {
+		return errors.New("failed to create bus implement")
+	}
+	return nil
+}
+
+func InitAndRunKafkaManualAck(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr string,
+	routeRules map[uint32]uint32, zookeeperAddr string) error {
+	err := severInstanceMgr.InitAndRun(selfBusId, routeRules, zookeeperAddr)
+	if err != nil {
+		return err
+	}
+
+	router.cbOnRecvSSPacket = cb
+	router.busImpl = bus.CreateBus("kafka_manual_ack", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddr)
 	if router.busImpl == nil {
 		return errors.New("failed to create bus implement")
 	}
