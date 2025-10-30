@@ -23,7 +23,7 @@ type BusImplRabbitMQ struct {
 func NewBusImplRabbitMQ(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr string) *BusImplRabbitMQ {
 	impl := new(BusImplRabbitMQ)
 	impl.selfBusId = selfBusId
-	impl.queueName = calcQueueName(selfBusId)
+	impl.queueName = calcQueueNameRMQ(selfBusId)
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan uint64, 10000)
@@ -36,7 +36,7 @@ func NewBusImplRabbitMQ(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr str
 func NewBusImplRabbitMQManualAck(selfBusId uint32, onRecvMsg MsgHandler, rabbitmqAddr string) *BusImplRabbitMQ {
 	impl := new(BusImplRabbitMQ)
 	impl.selfBusId = selfBusId
-	impl.queueName = calcQueueName(selfBusId)
+	impl.queueName = calcQueueNameRMQ(selfBusId)
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan uint64, 10000)
@@ -76,7 +76,7 @@ func (b *BusImplRabbitMQ) Send(dstBusId uint32, data1 []byte, data2 []byte) erro
 
 	logger.Debugf("Send bus message. {len:%v, msg:%#v}", len(data1)+len(data2), header)
 
-	if !sendToMsgChan(b.chanOut, msg, b.timeout) {
+	if !b.sendToMsgChan(b.chanOut, msg, b.timeout) {
 		return fmt.Errorf("bus.chanOut<-msg time out")
 	} // msg所有权已转移，后面不能再使用msg
 
@@ -139,11 +139,11 @@ type outMsg struct {
 	data  []byte
 }
 
-func calcQueueName(busId uint32) string {
+func calcQueueNameRMQ(busId uint32) string {
 	return "bus_" + fmt.Sprintf("%x", busId)
 }
 
-func sendToMsgChan(ch chan outMsg, msg outMsg, timeout time.Duration) bool {
+func (b *BusImplRabbitMQ) sendToMsgChan(ch chan outMsg, msg outMsg, timeout time.Duration) bool {
 	t := time.NewTimer(timeout)
 	defer t.Stop()
 	select {
@@ -194,10 +194,10 @@ func (b *BusImplRabbitMQ) process(rabbitmqAddr string) error {
 			logger.Debugf("Send message to MQ. {dstBusId:0x%x, dataLen:%v}", msgOut.busId, len(msgOut.data))
 			// send by routering
 			err = ch.Publish(
-				"",                          // exchange
-				calcQueueName(msgOut.busId), // routing key
-				false,                       // mandatory
-				false,                       // immediate
+				"",                             // exchange
+				calcQueueNameRMQ(msgOut.busId), // routing key
+				false,                          // mandatory
+				false,                          // immediate
 				amqp.Publishing{
 					// ContentType: "text/plain",
 					Body: msgOut.data,
