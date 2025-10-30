@@ -72,10 +72,6 @@ func (b *BusImplKafka) SelfBusId() uint32 {
 	return b.selfBusId
 }
 
-func (b *BusImplKafka) calcTopicNameKafka(busId uint32) string {
-	return "bus_" + fmt.Sprintf("%x", busId)
-}
-
 func (b *BusImplKafka) SetReceiver(onRecvMsg MsgHandler) {
 	b.onRecv = onRecvMsg
 }
@@ -215,7 +211,7 @@ func (b *BusImplKafka) process() error {
 			logger.Debugf("Send message to Kafka. {dstBusId:0x%x, dataLen:%v}", msgOut.busId, len(msgOut.data))
 
 			kafkaMsg := kafka.Message{
-				Topic: b.topic,
+				Topic: calcTopicNameKafka(msgOut.busId),
 				Value: msgOut.data,
 			}
 
