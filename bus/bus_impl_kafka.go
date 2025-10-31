@@ -12,29 +12,38 @@ import (
 )
 
 type BusImplKafka struct {
-	selfBusId   uint32
-	topic       string
-	timeout     time.Duration
-	chanOut     chan outMsg
-	chanAck     chan kafkaAckMsg
-	onRecv      MsgHandler
-	autoAck     bool
-	kafkaAddr   string
-	reader      *kafka.Reader
-	writer      *kafka.Writer
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	ackMap      map[string]kafka.Message // 存储待确认的消息
-	ackMapMutex sync.RWMutex
+	selfBusId       uint32
+	topic           string
+	timeout         time.Duration
+	chanOut         chan outMsg
+	chanAck         chan kafkaAckMsg
+	onRecv          MsgHandler
+	autoAck         bool
+	kafkaAddrs      []string
+	reader          *kafka.Reader
+	writer          *kafka.Writer
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	ackMap          map[uint64]ackMapEntry // 使用 queueTag 作为 key
+	ackMapMutex     sync.RWMutex
+	closed          bool
+	closeMutex      sync.RWMutex
+	ackSeq          uint64 // 用于生成唯一的 queueTag
+	ackSeqMutex     sync.Mutex
+	lastCleanupTime time.Time // 上次清理 ackMap 的时间
+}
+
+type ackMapEntry struct {
+	msg       kafka.Message
+	timestamp time.Time
 }
 
 type kafkaAckMsg struct {
-	partition int
-	offset    int64
+	queueTag uint64
 }
 
-func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddr string) *BusImplKafka {
+func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string) *BusImplKafka {
 	impl := new(BusImplKafka)
 	impl.selfBusId = selfBusId
 	impl.topic = calcTopicNameKafka(selfBusId)
@@ -43,15 +52,18 @@ func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddr string) *
 	impl.chanAck = make(chan kafkaAckMsg, 10000)
 	impl.onRecv = onRecvMsg
 	impl.autoAck = true
-	impl.kafkaAddr = kafkaAddr
-	impl.ackMap = make(map[string]kafka.Message)
+	impl.kafkaAddrs = kafkaAddrs
+	impl.ackMap = make(map[uint64]ackMapEntry)
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
+	impl.closed = false
+	impl.ackSeq = 0
+	impl.lastCleanupTime = time.Now()
 
 	go impl.run()
 	return impl
 }
 
-func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddr string) *BusImplKafka {
+func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string) *BusImplKafka {
 	impl := new(BusImplKafka)
 	impl.selfBusId = selfBusId
 	impl.topic = calcTopicNameKafka(selfBusId)
@@ -60,9 +72,12 @@ func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddr 
 	impl.chanAck = make(chan kafkaAckMsg, 10000)
 	impl.onRecv = onRecvMsg
 	impl.autoAck = false
-	impl.kafkaAddr = kafkaAddr
-	impl.ackMap = make(map[string]kafka.Message)
+	impl.kafkaAddrs = kafkaAddrs
+	impl.ackMap = make(map[uint64]ackMapEntry)
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
+	impl.closed = false
+	impl.ackSeq = 0
+	impl.lastCleanupTime = time.Now()
 
 	go impl.run()
 	return impl
@@ -77,6 +92,13 @@ func (b *BusImplKafka) SetReceiver(onRecvMsg MsgHandler) {
 }
 
 func (b *BusImplKafka) Send(dstBusId uint32, data1 []byte, data2 []byte) error {
+	b.closeMutex.RLock()
+	if b.closed {
+		b.closeMutex.RUnlock()
+		return fmt.Errorf("bus is closed")
+	}
+	b.closeMutex.RUnlock()
+
 	header := busPacketHeader{}
 	header.version = 0
 	header.passCode = passCode
@@ -106,13 +128,15 @@ func (b *BusImplKafka) Send(dstBusId uint32, data1 []byte, data2 []byte) error {
 }
 
 func (b *BusImplKafka) Ack(queueTag uint64) error {
-	// 将 queueTag 解析为 partition 和 offset
-	partition := int(queueTag >> 32)
-	offset := int64(queueTag & 0xFFFFFFFF)
+	b.closeMutex.RLock()
+	if b.closed {
+		b.closeMutex.RUnlock()
+		return fmt.Errorf("bus is closed")
+	}
+	b.closeMutex.RUnlock()
 
 	ackMsg := kafkaAckMsg{
-		partition: partition,
-		offset:    offset,
+		queueTag: queueTag,
 	}
 
 	t := time.NewTimer(b.timeout)
@@ -127,6 +151,14 @@ func (b *BusImplKafka) Ack(queueTag uint64) error {
 }
 
 func (b *BusImplKafka) Close() error {
+	b.closeMutex.Lock()
+	if b.closed {
+		b.closeMutex.Unlock()
+		return nil
+	}
+	b.closed = true
+	b.closeMutex.Unlock()
+
 	b.cancel()
 	b.wg.Wait()
 
@@ -163,7 +195,7 @@ func (b *BusImplKafka) sendToMsgChan(ch chan outMsg, msg outMsg, timeout time.Du
 
 func (b *BusImplKafka) initKafkaWriter() error {
 	b.writer = &kafka.Writer{
-		Addr:         kafka.TCP(b.kafkaAddr),
+		Addr:         kafka.TCP(b.kafkaAddrs...),
 		Balancer:     &kafka.LeastBytes{},
 		BatchTimeout: 10 * time.Millisecond,
 		BatchSize:    100,
@@ -172,15 +204,15 @@ func (b *BusImplKafka) initKafkaWriter() error {
 }
 
 func (b *BusImplKafka) initKafkaReader() error {
-
 	b.reader = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     []string{b.kafkaAddr},
-		Topic:       b.topic,
-		GroupID:     fmt.Sprintf("bus_group_%x", b.selfBusId),
-		MinBytes:    1,
-		MaxBytes:    10e6, // 10MB
-		MaxWait:     1 * time.Second,
-		StartOffset: kafka.LastOffset,
+		Brokers:  b.kafkaAddrs,
+		Topic:    b.topic,
+		GroupID:  fmt.Sprintf("bus_group_%x", b.selfBusId),
+		MinBytes: 1,
+		MaxBytes: 10e6, // 10MB
+		MaxWait:  1 * time.Second,
+		// 使用 Consumer Group 的 offset 管理，避免丢失历史消息
+		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
 	})
 
 	return nil
@@ -193,10 +225,15 @@ func (b *BusImplKafka) process() error {
 	}
 
 	if err := b.initKafkaReader(); err != nil {
+		// 如果 reader 初始化失败，需要清理 writer
+		if b.writer != nil {
+			b.writer.Close()
+			b.writer = nil
+		}
 		return fmt.Errorf("failed to init kafka reader: %v", err)
 	}
 
-	logger.Infof("connected to kafka %v", b.kafkaAddr)
+	logger.Infof("connected to kafka %v", b.kafkaAddrs)
 
 	for {
 		select {
@@ -222,6 +259,8 @@ func (b *BusImplKafka) process() error {
 			if err != nil {
 				logger.Errorf("Failed to publish a message. {busId:%v, dataLen:%v, err:%v}",
 					msgOut.busId, len(msgOut.data), err)
+				// 发送失败返回错误，触发重连
+				return fmt.Errorf("failed to write message: %v", err)
 			}
 
 		case ackMsg, ok := <-b.chanAck:
@@ -229,27 +268,32 @@ func (b *BusImplKafka) process() error {
 				return fmt.Errorf("chanAck of bus is closed")
 			}
 
-			// 构造消息键用于查找待确认的消息
-			msgKey := fmt.Sprintf("%d_%d", ackMsg.partition, ackMsg.offset)
-
 			b.ackMapMutex.RLock()
-			msg, exists := b.ackMap[msgKey]
+			entry, exists := b.ackMap[ackMsg.queueTag]
 			b.ackMapMutex.RUnlock()
 
 			if exists {
-				err := b.reader.CommitMessages(b.ctx, msg)
+				err := b.reader.CommitMessages(b.ctx, entry.msg)
 				if err != nil {
-					logger.Warningf("Failed to ack message {partition:%d, offset:%d, err:%v}",
-						ackMsg.partition, ackMsg.offset, err)
+					logger.Warningf("Failed to ack message {queueTag:%d, partition:%d, offset:%d, err:%v}",
+						ackMsg.queueTag, entry.msg.Partition, entry.msg.Offset, err)
 				} else {
 					// 成功确认后从 map 中删除
 					b.ackMapMutex.Lock()
-					delete(b.ackMap, msgKey)
+					delete(b.ackMap, ackMsg.queueTag)
 					b.ackMapMutex.Unlock()
 				}
+			} else {
+				logger.Warningf("Ack message not found in ackMap {queueTag:%d}", ackMsg.queueTag)
 			}
 
 		default:
+			// 定期清理过期的 ackMap 条目（每30秒）
+			if time.Since(b.lastCleanupTime) > 30*time.Second {
+				b.cleanupExpiredAckEntries()
+				b.lastCleanupTime = time.Now()
+			}
+
 			// 尝试接收消息
 			ctx, cancel := context.WithTimeout(b.ctx, 100*time.Millisecond)
 			msg, err := b.reader.ReadMessage(ctx)
@@ -264,6 +308,28 @@ func (b *BusImplKafka) process() error {
 
 			b.handleReceivedMessage(msg)
 		}
+	}
+}
+
+// 清理超过5分钟未确认的消息
+func (b *BusImplKafka) cleanupExpiredAckEntries() {
+	expireTime := time.Now().Add(-5 * time.Minute)
+
+	b.ackMapMutex.Lock()
+	defer b.ackMapMutex.Unlock()
+
+	expiredCount := 0
+	for queueTag, entry := range b.ackMap {
+		if entry.timestamp.Before(expireTime) {
+			delete(b.ackMap, queueTag)
+			expiredCount++
+			logger.Warningf("Removed expired ack entry {queueTag:%d, partition:%d, offset:%d}",
+				queueTag, entry.msg.Partition, entry.msg.Offset)
+		}
+	}
+
+	if expiredCount > 0 {
+		logger.Infof("Cleaned up %d expired ack entries", expiredCount)
 	}
 }
 
@@ -283,25 +349,32 @@ func (b *BusImplKafka) handleReceivedMessage(msg kafka.Message) {
 	}
 
 	if b.onRecv != nil {
+		// 先拷贝数据
+		recvData := make([]byte, len(msg.Value)-byteLenOfBusPacketHeader())
+		copy(recvData, msg.Value[byteLenOfBusPacketHeader():])
+
 		// 如果是手动确认模式，将消息存储到 ackMap 中
 		if !b.autoAck {
-			// 将 partition 和 offset 编码到 queueTag 中
-			queueTag := uint64(msg.Partition)<<32 | uint64(msg.Offset)
-			msgKey := fmt.Sprintf("%d_%d", msg.Partition, msg.Offset)
+			// 生成唯一的 queueTag
+			b.ackSeqMutex.Lock()
+			b.ackSeq++
+			queueTag := b.ackSeq
+			b.ackSeqMutex.Unlock()
 
 			b.ackMapMutex.Lock()
-			b.ackMap[msgKey] = msg
+			b.ackMap[queueTag] = ackMapEntry{
+				msg:       msg,
+				timestamp: time.Now(),
+			}
 			b.ackMapMutex.Unlock()
 
 			// 设置 queueTag 到 packet header 的 extra 字段
 			packetHeader := new(sharedstruct.SSPacketHeader)
-			packetHeader.From(msg.Value[byteLenOfBusPacketHeader():])
+			packetHeader.From(recvData)
 			packetHeader.Extra = queueTag
-			packetHeader.To(msg.Value[byteLenOfBusPacketHeader():])
+			packetHeader.To(recvData)
 		}
 
-		recvData := make([]byte, len(msg.Value)-byteLenOfBusPacketHeader())
-		copy(recvData, msg.Value[byteLenOfBusPacketHeader():])
 		b.onRecv(header.srcBusId, recvData)
 
 		// 如果是自动确认模式，立即确认消息
