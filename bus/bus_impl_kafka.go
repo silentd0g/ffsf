@@ -211,7 +211,7 @@ func (b *BusImplKafka) initKafkaReader() error {
 		GroupID:  fmt.Sprintf("bus_group_%x", b.selfBusId),
 		MinBytes: 1,
 		MaxBytes: 10e6, // 10MB
-		MaxWait:  1 * time.Second,
+		MaxWait:  100 * time.Millisecond,
 		// 使用 Consumer Group 的 offset 管理，避免丢失历史消息
 		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
 	})
