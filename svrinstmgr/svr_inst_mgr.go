@@ -53,8 +53,20 @@ func (s *ServerInstanceMgr) InitAndRun(selfBusID string, routeRules map[uint32]u
 	_, gameId, _, _, _ := bus.ParseBusID(selfBusID)
 	s.rootNode = "/online_" + fmt.Sprintf("%03d", gameId)
 
-	go s.runSvrInsMgr(selfBusID, chanConnect)
-	return nil
+	// 创建一个channel用于等待初始化完成
+	chanReady := make(chan error, 1)
+	go s.runSvrInsMgr(selfBusID, chanConnect, chanReady)
+
+	// 等待初始化完成或超时
+	select {
+	case err := <-chanReady:
+		if err != nil {
+			return err
+		}
+		return nil
+	case <-time.After(time.Second * 30):
+		return errors.New("init zookeeper timeout")
+	}
 }
 
 func (s *ServerInstanceMgr) Close() {
@@ -95,14 +107,19 @@ func (s *ServerInstanceMgr) GetAllSvrInsBySvrType(severType uint32) []uint32 {
 
 // -------------------------------- private --------------------------------
 
-func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk.Event) {
+func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk.Event, chanReady chan<- error) {
 	var err error
 	var chanNodeEvent <-chan zk.Event
+	isInitialized := false
+
 	for {
 		select {
 		case eventConnect, ok := <-chanConnect: // ZooKeeper连接事件
 			if !ok {
 				logger.Fatalf("chanConnect is closed")
+				if !isInitialized {
+					chanReady <- errors.New("chanConnect closed before initialization")
+				}
 				return
 			}
 
@@ -114,6 +131,9 @@ func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk
 				_, err = s.conn.Create(nodeName, []byte{}, zk.FlagEphemeral|zk.FlagSequence, zk.WorldACL(zk.PermAll))
 				if err != nil {
 					logger.Fatalf("Create node error. {nodeName:%s, err:%v}", nodeName, err)
+					if !isInitialized {
+						chanReady <- fmt.Errorf("create node error: %v", err)
+					}
 					panic("failed to create node")
 
 				}
@@ -122,8 +142,18 @@ func (s *ServerInstanceMgr) runSvrInsMgr(selfBusID string, chanConnect <-chan zk
 				chanNodeEvent, err = s.watchAndRefreshNodes()
 				if err != nil {
 					logger.Fatalf("Failed to watch online nodes. {err:%v}", err)
+					if !isInitialized {
+						chanReady <- fmt.Errorf("watch online nodes error: %v", err)
+					}
 					panic("failed to watch online node")
 
+				}
+
+				// 初始化完成，通知等待的goroutine
+				if !isInitialized {
+					isInitialized = true
+					chanReady <- nil
+					logger.Infof("ZooKeeper initialization completed successfully")
 				}
 			}
 		case eventNode, ok := <-chanNodeEvent: // 节点变化的事件
