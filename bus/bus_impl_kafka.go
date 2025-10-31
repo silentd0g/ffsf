@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -300,7 +301,7 @@ func (b *BusImplKafka) process() error {
 			cancel()
 
 			if err != nil {
-				if err == context.DeadlineExceeded {
+				if errors.Is(err, context.DeadlineExceeded) {
 					continue // 超时是正常的，继续循环
 				}
 				return fmt.Errorf("failed to read message: %v", err)
