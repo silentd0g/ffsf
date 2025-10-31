@@ -219,7 +219,7 @@ func SendMsgBack(originalHeader sharedstruct.SSPacketHeader, srcTransId uint32, 
 		DstTransID: originalHeader.SrcTransID,
 		Uid:        originalHeader.Uid,
 		Cmd:        originalHeader.Cmd + 1,
-		// CmdSeq:     originalHeader.CmdSeq,
+		CmdSeq:     originalHeader.CmdSeq,
 	}
 
 	logger.Debugf("SendMsgBack. {header:%#v}", packetHeader)
