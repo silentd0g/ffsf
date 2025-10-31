@@ -212,15 +212,19 @@ func BroadcastPbMsgByServerType(svrType uint32, uid uint64, cmd uint32, sendSeq 
 }
 
 func SendMsgBack(originalHeader sharedstruct.SSPacketHeader, srcTransId uint32, pbMsg proto.Message) {
-	originalHeader.DstBusID = originalHeader.SrcBusID
-	originalHeader.SrcBusID = SelfBusId()
-	originalHeader.DstTransID = originalHeader.SrcTransID
-	originalHeader.SrcTransID = srcTransId
-	originalHeader.Cmd = originalHeader.Cmd + 1
+	packetHeader := sharedstruct.SSPacketHeader{
+		SrcBusID:   SelfBusId(),
+		DstBusID:   originalHeader.SrcBusID,
+		SrcTransID: srcTransId,
+		DstTransID: originalHeader.SrcTransID,
+		Uid:        originalHeader.Uid,
+		Cmd:        originalHeader.Cmd + 1,
+		// CmdSeq:     originalHeader.CmdSeq,
+	}
 
-	logger.Debugf("SendMsgBack. {header:%#v}", originalHeader)
+	logger.Debugf("SendMsgBack. {header:%#v}", packetHeader)
 
-	SendPbMsg(&originalHeader, pbMsg)
+	SendPbMsg(&packetHeader, pbMsg)
 }
 
 // -------------------------------- private --------------------------------
