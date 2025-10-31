@@ -75,7 +75,7 @@ func InitAndRunMQManualAck(selfBusId string, cb CbOnRecvSSPacket, rabbitmqAddr s
 	return nil
 }
 
-func InitAndRunKafka(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr string,
+func InitAndRunKafka(selfBusId string, cb CbOnRecvSSPacket, kafkaAddrs []string,
 	routeRules map[uint32]uint32, zookeeperAddr string) error {
 	err := severInstanceMgr.InitAndRun(selfBusId, routeRules, zookeeperAddr)
 	if err != nil {
@@ -83,14 +83,14 @@ func InitAndRunKafka(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr string,
 	}
 
 	router.cbOnRecvSSPacket = cb
-	router.busImpl = bus.CreateBus("kafka", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddr)
+	router.busImpl = bus.CreateBus("kafka", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddrs)
 	if router.busImpl == nil {
 		return errors.New("failed to create bus implement")
 	}
 	return nil
 }
 
-func InitAndRunKafkaManualAck(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr string,
+func InitAndRunKafkaManualAck(selfBusId string, cb CbOnRecvSSPacket, kafkaAddrs []string,
 	routeRules map[uint32]uint32, zookeeperAddr string) error {
 	err := severInstanceMgr.InitAndRun(selfBusId, routeRules, zookeeperAddr)
 	if err != nil {
@@ -98,7 +98,7 @@ func InitAndRunKafkaManualAck(selfBusId string, cb CbOnRecvSSPacket, kafkaAddr s
 	}
 
 	router.cbOnRecvSSPacket = cb
-	router.busImpl = bus.CreateBus("kafka_manual_ack", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddr)
+	router.busImpl = bus.CreateBus("kafka_manual_ack", bus.IpStringToInt(selfBusId), onRecvBusMsg, kafkaAddrs)
 	if router.busImpl == nil {
 		return errors.New("failed to create bus implement")
 	}
