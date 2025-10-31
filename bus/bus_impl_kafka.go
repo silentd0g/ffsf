@@ -216,6 +216,24 @@ func (b *BusImplKafka) initKafkaReader() error {
 		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
 	})
 
+	// 预热步骤：主动建立连接，避免第一条消息延迟
+	// 通过尝试读取一条消息（超时时间短）来触发连接建立和 Consumer Group 初始化
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := b.reader.FetchMessage(ctx)
+	// 忽略错误（可能是超时或没有消息），只要连接已经建立即可
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) {
+			logger.Debugf("Kafka reader warmup attempt: %v", err)
+		}
+	} else {
+		// 如果成功读取到消息，记录日志但不处理，留给后续的 ReadMessage 处理
+		logger.Debugf("Kafka reader warmup succeeded, connection established")
+	}
+
+	logger.Infof("Kafka reader initialized for topic: %s", b.topic)
+
 	return nil
 }
 
