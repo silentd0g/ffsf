@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/silentd0g/ffsf/cmd_handler"
 	"github.com/silentd0g/ffsf/logger"
 	"github.com/silentd0g/ffsf/router"
@@ -112,7 +111,7 @@ func (t *Transaction) CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Mes
 	t.sendSeq += 1
 	err := router.SendPbMsgBySvrType(svrType, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
-		glog.Error(err)
+		t.Errorf("%v", err)
 		return err
 	}
 
@@ -123,7 +122,7 @@ func (t *Transaction) SendMsgBySvrType(svrType uint32, cmd uint32, req proto.Mes
 	t.sendSeq += 1
 	err := router.SendPbMsgBySvrType(svrType, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
-		glog.Error(err)
+		t.Errorf("%v", err)
 		return err
 	}
 	return nil
@@ -133,7 +132,7 @@ func (t *Transaction) SendPbMsgByBusId(busId uint32, cmd uint32, req proto.Messa
 	t.sendSeq += 1
 	err := router.SendPbMsgByBusId(busId, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
-		glog.Error(err)
+		t.Errorf("%v", err)
 		return err
 	}
 	return nil
@@ -144,7 +143,7 @@ func (t *Transaction) BroadcastByServerType(svrType uint32, cmd uint32, req prot
 	t.sendSeq += 1
 	err := router.BroadcastPbMsgByServerType(svrType, t.Uid(), cmd, t.sendSeq, req)
 	if err != nil {
-		glog.Error(err)
+		t.Errorf("%v", err)
 	}
 	return err
 }
@@ -154,7 +153,7 @@ func (t *Transaction) CallMsgByBusId(busId uint32, cmd uint32, req proto.Message
 	t.sendSeq += 1
 	err := router.SendPbMsgByBusId(busId, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
-		glog.Error(err)
+		t.Errorf("%v", err)
 		return err
 	}
 
@@ -168,18 +167,18 @@ func (t *Transaction) waitRsp(dstSvrType uint32, dstSvrIns uint32, cmd uint32,
 	for {
 		select {
 		case <-ti.C:
-			glog.Errorf("timeout to CallMsgBySvrType {svrType:%v, svrIns:%v, uid:%v, cmd:0x%x, req:%#v}",
+			t.Errorf("timeout to CallMsgBySvrType {svrType:%v, svrIns:%v, uid:%v, cmd:0x%x, req:%#v}",
 				dstSvrType, dstSvrIns, t.Uid(), cmd, req)
 			return errors.New("timeout")
 		case packet, ok := <-t.chanIn:
 			if !ok {
-				glog.Errorf("Failed to CallMsgBySvrType as chanInPacket is closed "+
+				t.Errorf("Failed to CallMsgBySvrType as chanInPacket is closed "+
 					"{svrType:%v, svrIns:%v, uid:%v, cmd:0x%x, req:%#v}",
 					dstSvrType, dstSvrIns, t.Uid(), cmd, req)
 				return errors.New("channel is closed")
 			}
 			if packet.Header.CmdSeq != t.sendSeq || packet.Header.Cmd != cmd+1 {
-				glog.Warningf("Received a packet which is not what I'm waiting for "+
+				t.Warningf("Received a packet which is not what I'm waiting for "+
 					"{dstSvrType:%v, dstSvrIns:%v, uid:%v, cmd:0x%x, req:%#v, recvPacket:%#v}",
 					dstSvrType, dstSvrIns, t.Uid(), cmd, req, packet.Header)
 			} else {
