@@ -13,26 +13,26 @@ import (
 )
 
 type BusImplKafka struct {
-	selfBusId       uint32
-	topic           string
-	timeout         time.Duration
-	chanOut         chan outMsg
-	chanAck         chan kafkaAckMsg
-	onRecv          MsgHandler
-	autoAck         bool
-	kafkaAddrs      []string
-	reader          *kafka.Reader
-	writer          *kafka.Writer
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	ackMap          map[uint64]ackMapEntry // 使用 queueTag 作为 key
-	ackMapMutex     sync.RWMutex
-	closed          bool
-	closeMutex      sync.RWMutex
-	ackSeq          uint64 // 用于生成唯一的 queueTag
-	ackSeqMutex     sync.Mutex
-	lastCleanupTime time.Time // 上次清理 ackMap 的时间
+	selfBusId   uint32
+	topic       string
+	timeout     time.Duration
+	chanOut     chan outMsg
+	chanAck     chan kafkaAckMsg
+	chanIn      chan kafka.Message // 新增：用于接收 Kafka 消息的 channel
+	onRecv      MsgHandler
+	autoAck     bool
+	kafkaAddrs  []string
+	reader      *kafka.Reader
+	writer      *kafka.Writer
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	ackMap      map[uint64]ackMapEntry // 使用 queueTag 作为 key
+	ackMapMutex sync.RWMutex
+	closed      bool
+	closeMutex  sync.RWMutex
+	ackSeq      uint64 // 用于生成唯一的 queueTag
+	ackSeqMutex sync.Mutex
 }
 
 type ackMapEntry struct {
@@ -51,6 +51,7 @@ func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan kafkaAckMsg, 10000)
+	impl.chanIn = make(chan kafka.Message, 10000) // 初始化接收消息的 channel
 	impl.onRecv = onRecvMsg
 	impl.autoAck = true
 	impl.kafkaAddrs = kafkaAddrs
@@ -58,7 +59,6 @@ func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
 	impl.closed = false
 	impl.ackSeq = 0
-	impl.lastCleanupTime = time.Now()
 
 	go impl.run()
 	return impl
@@ -71,6 +71,7 @@ func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs
 	impl.timeout = 3 * time.Second
 	impl.chanOut = make(chan outMsg, 10000)
 	impl.chanAck = make(chan kafkaAckMsg, 10000)
+	impl.chanIn = make(chan kafka.Message, 10000) // 初始化接收消息的 channel
 	impl.onRecv = onRecvMsg
 	impl.autoAck = false
 	impl.kafkaAddrs = kafkaAddrs
@@ -78,7 +79,6 @@ func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
 	impl.closed = false
 	impl.ackSeq = 0
-	impl.lastCleanupTime = time.Now()
 
 	go impl.run()
 	return impl
@@ -172,6 +172,7 @@ func (b *BusImplKafka) Close() error {
 
 	close(b.chanOut)
 	close(b.chanAck)
+	close(b.chanIn)
 
 	return nil
 }
@@ -237,6 +238,44 @@ func (b *BusImplKafka) initKafkaReader() error {
 	return nil
 }
 
+// readLoop 独立的 goroutine，专门负责从 Kafka 读取消息并发送到 chanIn
+func (b *BusImplKafka) readLoop() {
+	b.wg.Add(1)
+	defer b.wg.Done()
+
+	logger.Infof("Kafka read loop started")
+
+	for {
+		select {
+		case <-b.ctx.Done():
+			logger.Infof("Kafka read loop stopped")
+			return
+		default:
+		}
+
+		// 阻塞读取消息，不设置超时，让 ReadMessage 自己处理
+		msg, err := b.reader.ReadMessage(b.ctx)
+		if err != nil {
+			if b.ctx.Err() != nil {
+				// context 已取消，正常退出
+				return
+			}
+			// 读取错误，记录日志并继续
+			logger.Errorf("Failed to read message from Kafka: %v", err)
+			time.Sleep(time.Second) // 短暂休眠后重试
+			continue
+		}
+
+		// 将读取到的消息发送到 chanIn
+		select {
+		case b.chanIn <- msg:
+			// 成功发送
+		case <-b.ctx.Done():
+			return
+		}
+	}
+}
+
 func (b *BusImplKafka) process() error {
 	// 初始化 Kafka writer 和 reader
 	if err := b.initKafkaWriter(); err != nil {
@@ -253,6 +292,13 @@ func (b *BusImplKafka) process() error {
 	}
 
 	logger.Infof("connected to kafka %v", b.kafkaAddrs)
+
+	// 启动独立的消息读取 goroutine
+	go b.readLoop()
+
+	// 定时器：用于定期清理过期的 ackMap 条目
+	cleanupTicker := time.NewTicker(30 * time.Second)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
@@ -306,26 +352,15 @@ func (b *BusImplKafka) process() error {
 				logger.Warningf("Ack message not found in ackMap {queueTag:%d}", ackMsg.queueTag)
 			}
 
-		default:
-			// 定期清理过期的 ackMap 条目（每30秒）
-			if time.Since(b.lastCleanupTime) > 30*time.Second {
-				b.cleanupExpiredAckEntries()
-				b.lastCleanupTime = time.Now()
+		case msg, ok := <-b.chanIn:
+			if !ok {
+				return fmt.Errorf("chanIn of bus is closed")
 			}
-
-			// 尝试接收消息
-			ctx, cancel := context.WithTimeout(b.ctx, 100*time.Millisecond)
-			msg, err := b.reader.ReadMessage(ctx)
-			cancel()
-
-			if err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					continue // 超时是正常的，继续循环
-				}
-				return fmt.Errorf("failed to read message: %v", err)
-			}
-
 			b.handleReceivedMessage(msg)
+
+		case <-cleanupTicker.C:
+			// 定期清理过期的 ackMap 条目
+			b.cleanupExpiredAckEntries()
 		}
 	}
 }
