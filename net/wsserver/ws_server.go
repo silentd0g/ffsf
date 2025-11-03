@@ -176,19 +176,25 @@ func (s *WsServer) runConnWrite(c *websocket.Conn, chanWrite <-chan []byte) {
 
 func (s *WsServer) addClient(c *websocket.Conn) chan []byte {
 	logger.Debugf("addClient {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
+
+	var chanWrite chan []byte
+
+	// 在锁的保护下添加客户端
 	s.Mu.Lock()
-	defer s.Mu.Unlock()
-	// 判断是否存在链接，不存在就加进去
 	if _, ok := s.Clients[c]; ok {
 		// 连接已存在，这是异常情况
+		s.Mu.Unlock()
 		logger.Errorf("Client already exists in map! {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 		return nil
 	}
 
-	chanWrite := make(chan []byte, 100)
+	chanWrite = make(chan []byte, 100)
 	s.Clients[c] = ClientInfo{
 		chanWrite: chanWrite,
 	}
+	s.Mu.Unlock()
+
+	// 在释放锁后调用回调函数，避免死锁
 	s.handler.OnConn(c)
 	go s.runConnWrite(c, chanWrite)
 
@@ -197,13 +203,25 @@ func (s *WsServer) addClient(c *websocket.Conn) chan []byte {
 
 func (s *WsServer) removeClient(c *websocket.Conn) {
 	logger.Debugf("removeClient {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
+
+	var chanWrite chan []byte
+	var needCallback bool
+
+	// 在锁的保护下删除客户端
 	s.Mu.Lock()
-	defer s.Mu.Unlock()
 	if info, ok := s.Clients[c]; ok {
-		s.handler.OnClose(c)
-		close(info.chanWrite)
+		chanWrite = info.chanWrite
 		delete(s.Clients, c)
+		needCallback = true
 	} else {
 		logger.Debugf("Client already removed. {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
+		needCallback = false
+	}
+	s.Mu.Unlock()
+
+	// 在释放锁后关闭channel和调用回调函数，避免死锁和panic
+	if needCallback {
+		close(chanWrite)
+		s.handler.OnClose(c)
 	}
 }
