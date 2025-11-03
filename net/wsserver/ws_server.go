@@ -100,16 +100,27 @@ func (s *WsServer) WsHandler(w http.ResponseWriter, r *http.Request) {
 		logger.Debugf("Upgrade failed. {err:%v, local:%v, remote:%v}", err, conn.LocalAddr(), conn.RemoteAddr())
 		return
 	}
-	s.addClient(conn)
+
+	chanWrite := s.addClient(conn)
+	if chanWrite == nil {
+		logger.Errorf("Failed to add client, conn may already exist. {local:%v, remote:%v}", conn.LocalAddr(), conn.RemoteAddr())
+		conn.Close()
+		return
+	}
+
+	// 确保连接一定会被清理
+	defer func() {
+		conn.Close()
+		s.removeClient(conn)
+	}()
+
 	for {
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
 			logger.Debugf("ReadMessage failed. {err:%v, local:%v, remote:%v}", err, conn.LocalAddr(), conn.RemoteAddr())
-			s.Close(conn)
 			return
 		}
 		if messageType == websocket.CloseMessage {
-			s.Close(conn)
 			logger.Debugf("CloseMessage received. {local:%v, remote:%v}", conn.LocalAddr(), conn.RemoteAddr())
 			return
 		}
@@ -147,47 +158,52 @@ func (s *WsServer) ListenAndServeTLS(addr string, certFile string, keyFile strin
 	}
 }
 
-func (s *WsServer) runConnWrite(c *websocket.Conn) {
-	for data := range s.Clients[c].chanWrite {
+func (s *WsServer) runConnWrite(c *websocket.Conn, chanWrite <-chan []byte) {
+	for data := range chanWrite {
 		if data == nil {
 			logger.Infof("A 'nil' is passed to chanWrite to close conn. {local:%v, remote:%v}",
 				c.LocalAddr(), c.RemoteAddr())
-			c.Close()
-			s.removeClient(c)
 			return
 		}
 		err := c.WriteMessage(websocket.BinaryMessage, data)
 		if err != nil {
 			logger.Errorf("WriteMessage failed. {err:%v, local:%v, remote:%v}", err, c.LocalAddr(), c.RemoteAddr())
-			c.Close()
-			s.removeClient(c)
 			return
 		}
 	}
 	logger.Debugf("chanWrite is closed. {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 }
 
-func (s *WsServer) addClient(c *websocket.Conn) {
+func (s *WsServer) addClient(c *websocket.Conn) chan []byte {
 	logger.Debugf("addClient {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	// 判断是否存在链接，不存在就加进去
-	if _, ok := s.Clients[c]; !ok {
-		s.Clients[c] = ClientInfo{
-			chanWrite: make(chan []byte, 100),
-		}
-		s.handler.OnConn(c)
-		go s.runConnWrite(c)
+	if _, ok := s.Clients[c]; ok {
+		// 连接已存在，这是异常情况
+		logger.Errorf("Client already exists in map! {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
+		return nil
 	}
+
+	chanWrite := make(chan []byte, 100)
+	s.Clients[c] = ClientInfo{
+		chanWrite: chanWrite,
+	}
+	s.handler.OnConn(c)
+	go s.runConnWrite(c, chanWrite)
+
+	return chanWrite
 }
 
 func (s *WsServer) removeClient(c *websocket.Conn) {
 	logger.Debugf("removeClient {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	if _, ok := s.Clients[c]; ok {
+	if info, ok := s.Clients[c]; ok {
 		s.handler.OnClose(c)
-		close(s.Clients[c].chanWrite)
+		close(info.chanWrite)
 		delete(s.Clients, c)
+	} else {
+		logger.Debugf("Client already removed. {local:%v, remote:%v}", c.LocalAddr(), c.RemoteAddr())
 	}
 }
