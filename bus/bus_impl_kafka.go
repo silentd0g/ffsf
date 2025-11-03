@@ -2,7 +2,6 @@ package bus
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ type BusImplKafka struct {
 	onRecv          MsgHandler
 	autoAck         bool
 	kafkaAddrs      []string
-	reader          *kafka.Reader
+	reader          *kafka.Reader // 单分区 reader
 	writer          *kafka.Writer
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -225,77 +224,32 @@ func (b *BusImplKafka) initKafkaWriter() error {
 }
 
 func (b *BusImplKafka) initKafkaReader() error {
+	// 【重要优化】使用 Partition 模式而不是 Consumer Group 模式
+	// 优点：启动快（< 1秒），无 rebalance 延迟
+	// 只消费 partition 0（假设 topic 只有一个分区）
+
+	logger.Infof("Kafka reader initializing (partition mode, no consumer group) for topic: %s...", b.topic)
+	warmupStart := time.Now()
+
 	b.reader = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        b.kafkaAddrs,
-		Topic:          b.topic,
-		GroupID:        fmt.Sprintf("bus_group_%x", b.selfBusId),
+		Brokers:   b.kafkaAddrs,
+		Topic:     b.topic,
+		Partition: 0, // 固定使用 partition 0
+		// 不设置 GroupID - 这是关键！不使用 Consumer Group 就不会有 rebalance
 		MinBytes:       1,
 		MaxBytes:       10e6, // 10MB
 		MaxWait:        100 * time.Millisecond,
-		CommitInterval: 0, // 显式禁用自动提交，完全由代码控制 commit 时机
-		// 优化 Consumer Group 参数，减少重平衡延迟
-		SessionTimeout:   10 * time.Second, // Consumer 心跳超时时间
-		RebalanceTimeout: 10 * time.Second, // Rebalance 最大时间
-		JoinGroupBackoff: 1 * time.Second,  // Join Group 重试间隔
-		// 使用 Consumer Group 的 offset 管理，避免丢失历史消息
-		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
+		StartOffset:    kafka.LastOffset, // 从最新消息开始（新消费者）
+		CommitInterval: 0,                // 禁用自动提交
 	})
 
-	// 预热步骤：主动触发 Consumer Group 加入和 Rebalance，避免第一条消息延迟
-	// 使用同步阻塞方式，确保 Consumer Group 完全就绪后才返回
-	logger.Infof("Kafka reader warming up, joining consumer group for topic: %s...", b.topic)
-	warmupStart := time.Now()
+	logger.Infof("Kafka reader ready (took %v): topic=%s, partition=0",
+		time.Since(warmupStart), b.topic)
 
-	// 使用更长的超时时间，匹配 Kafka 的 rebalance 超时
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Stats() 方法会强制连接到 Kafka 并获取元数据
-	// 这个调用比较轻量，但会建立连接
-	stats := b.reader.Stats()
-	logger.Debugf("Reader stats before warmup: offset=%d, lag=%d", stats.Offset, stats.Lag)
-
-	// 使用 ReadMessage 而不是 FetchMessage，因为后续也是用 ReadMessage
-	// 这样可以确保预热和实际使用的是同一个代码路径
-	// 注意：这里会一直阻塞到读到消息或超时
-	msg, err := b.reader.ReadMessage(ctx)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			// 超时说明没有消息，但 Consumer Group 应该已经加入成功
-			logger.Infof("Kafka reader warmup: no messages available, but consumer group joined (took %v)",
-				time.Since(warmupStart))
-		} else {
-			// 其他错误
-			logger.Warningf("Kafka reader warmup encountered error: %v (took %v)", err, time.Since(warmupStart))
-			return fmt.Errorf("failed to warmup kafka reader: %v", err)
-		}
-	} else {
-		// 成功读取到消息！
-		logger.Infof("Kafka reader warmup: received first message (took %v)", time.Since(warmupStart))
-
-		// 将消息放回 chanIn（注意：此时 workers 还未启动，使用非阻塞方式）
-		// 如果放不进去，也没关系，消息已经被 commit 了，不会丢失
-		select {
-		case b.chanIn <- msg:
-			logger.Debugf("Warmup message queued for processing")
-		default:
-			// chanIn 满了或还没有消费者，这条消息会在下次 fetch 时重新获取
-			logger.Debugf("Warmup message will be re-fetched (buffer full)")
-		}
-
-		// 如果是自动确认模式，立即确认这条消息
-		if b.autoAck {
-			if err := b.reader.CommitMessages(context.Background(), msg); err != nil {
-				logger.Warningf("Failed to commit warmup message: %v", err)
-			}
-		}
-	}
-
-	logger.Infof("Kafka reader initialized and ready for topic: %s", b.topic)
 	return nil
 }
 
-// readLoop 独立的 goroutine，专门负责从 Kafka 读取消息并发送到 chanIn
+// readLoop 读取消息的 goroutine
 // 使用 ReadMessage 阻塞读取，配合手动 commit（CommitInterval=0）提高性能
 func (b *BusImplKafka) readLoop() {
 	b.wg.Add(1)
@@ -396,7 +350,7 @@ func (b *BusImplKafka) process() error {
 
 	logger.Infof("connected to kafka %v", b.kafkaAddrs)
 
-	// 启动独立的消息读取 goroutine
+	// 启动消息读取 goroutine
 	go b.readLoop()
 
 	// 启动多个并发消息处理 worker
@@ -467,16 +421,14 @@ func (b *BusImplKafka) process() error {
 			b.ackMapMutex.RUnlock()
 
 			if exists {
-				err := b.reader.CommitMessages(b.ctx, entry.msg)
-				if err != nil {
-					logger.Warningf("Failed to ack message {queueTag:%d, partition:%d, offset:%d, err:%v}",
-						ackMsg.queueTag, entry.msg.Partition, entry.msg.Offset, err)
-				} else {
-					// 成功确认后从 map 中删除
-					b.ackMapMutex.Lock()
-					delete(b.ackMap, ackMsg.queueTag)
-					b.ackMapMutex.Unlock()
-				}
+				// 注意：Partition 模式下不使用 CommitMessages（无 Consumer Group）
+				// Ack 操作仅从 ackMap 中删除记录即可
+				// Offset 由 Kafka 自动管理（每次从 LastOffset 开始）
+				b.ackMapMutex.Lock()
+				delete(b.ackMap, ackMsg.queueTag)
+				b.ackMapMutex.Unlock()
+				logger.Debugf("Acked message {queueTag:%d, partition:%d, offset:%d}",
+					ackMsg.queueTag, entry.msg.Partition, entry.msg.Offset)
 			} else {
 				logger.Warningf("Ack message not found in ackMap {queueTag:%d}", ackMsg.queueTag)
 			}
@@ -554,14 +506,9 @@ func (b *BusImplKafka) handleReceivedMessage(msg kafka.Message) {
 
 		b.onRecv(header.srcBusId, recvData)
 
-		// 如果是自动确认模式，立即确认消息
-		if b.autoAck {
-			err := b.reader.CommitMessages(b.ctx, msg)
-			if err != nil {
-				logger.Warningf("Failed to auto-ack message {partition:%d, offset:%d, err:%v}",
-					msg.Partition, msg.Offset, err)
-			}
-		}
+		// 注意：Partition 模式下不使用 CommitMessages
+		// autoAck 模式下，消息处理完即视为已确认
+		// 重启后从 LastOffset 开始，只接收新消息
 	}
 }
 
