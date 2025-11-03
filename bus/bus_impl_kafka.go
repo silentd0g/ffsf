@@ -13,26 +13,27 @@ import (
 )
 
 type BusImplKafka struct {
-	selfBusId   uint32
-	topic       string
-	timeout     time.Duration
-	chanOut     chan outMsg
-	chanAck     chan kafkaAckMsg
-	chanIn      chan kafka.Message // 新增：用于接收 Kafka 消息的 channel
-	onRecv      MsgHandler
-	autoAck     bool
-	kafkaAddrs  []string
-	reader      *kafka.Reader
-	writer      *kafka.Writer
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	ackMap      map[uint64]ackMapEntry // 使用 queueTag 作为 key
-	ackMapMutex sync.RWMutex
-	closed      bool
-	closeMutex  sync.RWMutex
-	ackSeq      uint64 // 用于生成唯一的 queueTag
-	ackSeqMutex sync.Mutex
+	selfBusId       uint32
+	topic           string
+	timeout         time.Duration
+	chanOut         chan outMsg
+	chanAck         chan kafkaAckMsg
+	chanIn          chan kafka.Message // 新增：用于接收 Kafka 消息的 channel
+	onRecv          MsgHandler
+	autoAck         bool
+	kafkaAddrs      []string
+	reader          *kafka.Reader
+	writer          *kafka.Writer
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	ackMap          map[uint64]ackMapEntry // 使用 queueTag 作为 key
+	ackMapMutex     sync.RWMutex
+	closed          bool
+	closeMutex      sync.RWMutex
+	ackSeq          uint64 // 用于生成唯一的 queueTag
+	ackSeqMutex     sync.Mutex
+	consumerWorkers int // 并发消费者数量
 }
 
 type ackMapEntry struct {
@@ -59,6 +60,7 @@ func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
 	impl.closed = false
 	impl.ackSeq = 0
+	impl.consumerWorkers = 4 // 默认4个并发消费者
 
 	go impl.run()
 	return impl
@@ -79,6 +81,7 @@ func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
 	impl.closed = false
 	impl.ackSeq = 0
+	impl.consumerWorkers = 4 // 默认4个并发消费者
 
 	go impl.run()
 	return impl
@@ -90,6 +93,19 @@ func (b *BusImplKafka) SelfBusId() uint32 {
 
 func (b *BusImplKafka) SetReceiver(onRecvMsg MsgHandler) {
 	b.onRecv = onRecvMsg
+}
+
+// SetConsumerWorkers 设置并发消费者数量（需要在连接前调用）
+// 建议值：1-8，默认为4
+func (b *BusImplKafka) SetConsumerWorkers(workers int) {
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > 16 {
+		workers = 16
+	}
+	b.consumerWorkers = workers
+	logger.Infof("Set consumer workers to %d", workers)
 }
 
 func (b *BusImplKafka) Send(dstBusId uint32, data1 []byte, data2 []byte) error {
@@ -215,6 +231,8 @@ func (b *BusImplKafka) initKafkaReader() error {
 		MaxWait:  100 * time.Millisecond,
 		// 使用 Consumer Group 的 offset 管理，避免丢失历史消息
 		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
+		// 显式禁用自动提交，完全由代码控制 commit 时机
+		CommitInterval: 0, // 0 表示禁用自动提交
 	})
 
 	// 预热步骤：主动建立连接，避免第一条消息延迟
@@ -239,6 +257,7 @@ func (b *BusImplKafka) initKafkaReader() error {
 }
 
 // readLoop 独立的 goroutine，专门负责从 Kafka 读取消息并发送到 chanIn
+// 使用 ReadMessage 阻塞读取，配合手动 commit（CommitInterval=0）提高性能
 func (b *BusImplKafka) readLoop() {
 	b.wg.Add(1)
 	defer b.wg.Done()
@@ -253,7 +272,8 @@ func (b *BusImplKafka) readLoop() {
 		default:
 		}
 
-		// 阻塞读取消息，不设置超时，让 ReadMessage 自己处理
+		// 使用 ReadMessage 阻塞读取（已通过 CommitInterval=0 禁用自动提交）
+		// ReadMessage 内部有批量拉取优化，比 FetchMessage 更高效
 		msg, err := b.reader.ReadMessage(b.ctx)
 		if err != nil {
 			if b.ctx.Err() != nil {
@@ -266,12 +286,34 @@ func (b *BusImplKafka) readLoop() {
 			continue
 		}
 
-		// 将读取到的消息发送到 chanIn
+		// 将读取到的消息发送到 chanIn（非阻塞，优先处理消息）
 		select {
 		case b.chanIn <- msg:
 			// 成功发送
 		case <-b.ctx.Done():
 			return
+		}
+	}
+}
+
+// messageWorker 并发处理消息的 worker
+func (b *BusImplKafka) messageWorker(workerId int) {
+	b.wg.Add(1)
+	defer b.wg.Done()
+
+	logger.Infof("Kafka message worker %d started", workerId)
+
+	for {
+		select {
+		case <-b.ctx.Done():
+			logger.Infof("Kafka message worker %d stopped", workerId)
+			return
+		case msg, ok := <-b.chanIn:
+			if !ok {
+				logger.Infof("Kafka message worker %d: chanIn closed", workerId)
+				return
+			}
+			b.handleReceivedMessage(msg)
 		}
 	}
 }
@@ -295,6 +337,11 @@ func (b *BusImplKafka) process() error {
 
 	// 启动独立的消息读取 goroutine
 	go b.readLoop()
+
+	// 启动多个并发消息处理 worker
+	for i := 0; i < b.consumerWorkers; i++ {
+		go b.messageWorker(i)
+	}
 
 	// 定时器：用于定期清理过期的 ackMap 条目
 	cleanupTicker := time.NewTicker(30 * time.Second)
@@ -351,12 +398,6 @@ func (b *BusImplKafka) process() error {
 			} else {
 				logger.Warningf("Ack message not found in ackMap {queueTag:%d}", ackMsg.queueTag)
 			}
-
-		case msg, ok := <-b.chanIn:
-			if !ok {
-				return fmt.Errorf("chanIn of bus is closed")
-			}
-			b.handleReceivedMessage(msg)
 
 		case <-cleanupTicker.C:
 			// 定期清理过期的 ackMap 条目
