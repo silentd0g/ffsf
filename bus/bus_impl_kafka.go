@@ -219,43 +219,58 @@ func (b *BusImplKafka) initKafkaWriter() error {
 		BatchSize:    1,                   // 不在 Writer 层做批量，应用层已收集
 		Async:        true,                // 异步写入，不阻塞主循环
 		RequiredAcks: kafka.RequireOne,    // 只需要 leader 确认，提高性能
-		Compression:  kafka.Snappy,        // 启用压缩，提高网络效率
+		// Compression:  kafka.Snappy,        // 启用压缩，提高网络效率
 	}
 	return nil
 }
 
 func (b *BusImplKafka) initKafkaReader() error {
 	b.reader = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  b.kafkaAddrs,
-		Topic:    b.topic,
-		GroupID:  fmt.Sprintf("bus_group_%x", b.selfBusId),
-		MinBytes: 1,
-		MaxBytes: 10e6, // 10MB
-		MaxWait:  100 * time.Millisecond,
+		Brokers:        b.kafkaAddrs,
+		Topic:          b.topic,
+		GroupID:        fmt.Sprintf("bus_group_%x", b.selfBusId),
+		MinBytes:       1,
+		MaxBytes:       10e6, // 10MB
+		MaxWait:        100 * time.Millisecond,
+		CommitInterval: 0, // 显式禁用自动提交，完全由代码控制 commit 时机
+		// 优化 Consumer Group 参数，减少重平衡延迟
+		SessionTimeout:   10 * time.Second, // Consumer 心跳超时时间
+		RebalanceTimeout: 10 * time.Second, // Rebalance 最大时间
+		JoinGroupBackoff: 1 * time.Second,  // Join Group 重试间隔
 		// 使用 Consumer Group 的 offset 管理，避免丢失历史消息
 		// StartOffset: kafka.LastOffset, // 已注释掉，依赖 GroupID 的 offset
-		// 显式禁用自动提交，完全由代码控制 commit 时机
-		CommitInterval: 0, // 0 表示禁用自动提交
 	})
 
-	// 预热步骤：主动建立连接，避免第一条消息延迟
-	// 通过尝试读取一条消息（超时时间短）来触发连接建立和 Consumer Group 初始化
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 预热步骤：主动触发 Consumer Group 加入和 Rebalance，避免第一条消息延迟
+	// 使用较长的超时时间，确保 Consumer Group 完全初始化
+	logger.Infof("Kafka reader warming up, joining consumer group...")
+	warmupStart := time.Now()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err := b.reader.FetchMessage(ctx)
-	// 忽略错误（可能是超时或没有消息），只要连接已经建立即可
+	// 使用 FetchMessage 触发 Consumer Group 初始化
+	// FetchMessage 会触发 JoinGroup、SyncGroup、FetchOffset 等操作
+	msg, err := b.reader.FetchMessage(ctx)
 	if err != nil {
 		if !errors.Is(err, context.DeadlineExceeded) {
-			logger.Debugf("Kafka reader warmup attempt: %v", err)
+			logger.Warningf("Kafka reader warmup failed: %v (this is normal if no messages in topic)", err)
+		} else {
+			logger.Infof("Kafka reader warmup timeout (no messages), but consumer group joined (took %v)",
+				time.Since(warmupStart))
 		}
 	} else {
-		// 如果成功读取到消息，记录日志但不处理，留给后续的 ReadMessage 处理
-		logger.Debugf("Kafka reader warmup succeeded, connection established")
+		// 成功读取到消息，将其放回 chanIn 以便正常处理（不丢弃）
+		logger.Infof("Kafka reader warmup succeeded with a message (took %v)", time.Since(warmupStart))
+		select {
+		case b.chanIn <- msg:
+			logger.Debugf("Warmup message queued for processing")
+		default:
+			logger.Warningf("Failed to queue warmup message, will be re-fetched")
+		}
 	}
 
 	logger.Infof("Kafka reader initialized for topic: %s", b.topic)
-
 	return nil
 }
 
