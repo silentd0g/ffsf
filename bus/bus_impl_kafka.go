@@ -215,11 +215,11 @@ func (b *BusImplKafka) initKafkaWriter() error {
 	b.writer = &kafka.Writer{
 		Addr:         kafka.TCP(b.kafkaAddrs...),
 		Balancer:     &kafka.LeastBytes{},
-		BatchTimeout: 10 * time.Millisecond, // 批量等待时间
-		BatchSize:    100,                   // 批量大小
-		Async:        true,                  // 异步写入，不阻塞
-		RequiredAcks: kafka.RequireOne,      // 只需要 leader 确认，提高性能
-		Compression:  kafka.Snappy,          // 启用压缩，提高网络效率
+		BatchTimeout: 1 * time.Nanosecond, // 极短超时，立即发送（应用层已做批量收集）
+		BatchSize:    1,                   // 不在 Writer 层做批量，应用层已收集
+		Async:        true,                // 异步写入，不阻塞主循环
+		RequiredAcks: kafka.RequireOne,    // 只需要 leader 确认，提高性能
+		Compression:  kafka.Snappy,        // 启用压缩，提高网络效率
 	}
 	return nil
 }
