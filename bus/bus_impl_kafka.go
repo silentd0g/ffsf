@@ -242,35 +242,56 @@ func (b *BusImplKafka) initKafkaReader() error {
 	})
 
 	// 预热步骤：主动触发 Consumer Group 加入和 Rebalance，避免第一条消息延迟
-	// 使用较长的超时时间，确保 Consumer Group 完全初始化
-	logger.Infof("Kafka reader warming up, joining consumer group...")
+	// 使用同步阻塞方式，确保 Consumer Group 完全就绪后才返回
+	logger.Infof("Kafka reader warming up, joining consumer group for topic: %s...", b.topic)
 	warmupStart := time.Now()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// 使用更长的超时时间，匹配 Kafka 的 rebalance 超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 使用 FetchMessage 触发 Consumer Group 初始化
-	// FetchMessage 会触发 JoinGroup、SyncGroup、FetchOffset 等操作
-	msg, err := b.reader.FetchMessage(ctx)
+	// Stats() 方法会强制连接到 Kafka 并获取元数据
+	// 这个调用比较轻量，但会建立连接
+	stats := b.reader.Stats()
+	logger.Debugf("Reader stats before warmup: offset=%d, lag=%d", stats.Offset, stats.Lag)
+
+	// 使用 ReadMessage 而不是 FetchMessage，因为后续也是用 ReadMessage
+	// 这样可以确保预热和实际使用的是同一个代码路径
+	// 注意：这里会一直阻塞到读到消息或超时
+	msg, err := b.reader.ReadMessage(ctx)
 	if err != nil {
-		if !errors.Is(err, context.DeadlineExceeded) {
-			logger.Warningf("Kafka reader warmup failed: %v (this is normal if no messages in topic)", err)
-		} else {
-			logger.Infof("Kafka reader warmup timeout (no messages), but consumer group joined (took %v)",
+		if errors.Is(err, context.DeadlineExceeded) {
+			// 超时说明没有消息，但 Consumer Group 应该已经加入成功
+			logger.Infof("Kafka reader warmup: no messages available, but consumer group joined (took %v)",
 				time.Since(warmupStart))
+		} else {
+			// 其他错误
+			logger.Warningf("Kafka reader warmup encountered error: %v (took %v)", err, time.Since(warmupStart))
+			return fmt.Errorf("failed to warmup kafka reader: %v", err)
 		}
 	} else {
-		// 成功读取到消息，将其放回 chanIn 以便正常处理（不丢弃）
-		logger.Infof("Kafka reader warmup succeeded with a message (took %v)", time.Since(warmupStart))
+		// 成功读取到消息！
+		logger.Infof("Kafka reader warmup: received first message (took %v)", time.Since(warmupStart))
+
+		// 将消息放回 chanIn（注意：此时 workers 还未启动，使用非阻塞方式）
+		// 如果放不进去，也没关系，消息已经被 commit 了，不会丢失
 		select {
 		case b.chanIn <- msg:
 			logger.Debugf("Warmup message queued for processing")
 		default:
-			logger.Warningf("Failed to queue warmup message, will be re-fetched")
+			// chanIn 满了或还没有消费者，这条消息会在下次 fetch 时重新获取
+			logger.Debugf("Warmup message will be re-fetched (buffer full)")
+		}
+
+		// 如果是自动确认模式，立即确认这条消息
+		if b.autoAck {
+			if err := b.reader.CommitMessages(context.Background(), msg); err != nil {
+				logger.Warningf("Failed to commit warmup message: %v", err)
+			}
 		}
 	}
 
-	logger.Infof("Kafka reader initialized for topic: %s", b.topic)
+	logger.Infof("Kafka reader initialized and ready for topic: %s", b.topic)
 	return nil
 }
 
@@ -280,7 +301,9 @@ func (b *BusImplKafka) readLoop() {
 	b.wg.Add(1)
 	defer b.wg.Done()
 
-	logger.Infof("Kafka read loop started")
+	logger.Infof("Kafka read loop started, waiting for messages...")
+	firstMessage := true
+	loopStartTime := time.Now()
 
 	for {
 		select {
@@ -289,6 +312,9 @@ func (b *BusImplKafka) readLoop() {
 			return
 		default:
 		}
+
+		// 记录开始读取的时间（用于诊断）
+		readStartTime := time.Now()
 
 		// 使用 ReadMessage 阻塞读取（已通过 CommitInterval=0 禁用自动提交）
 		// ReadMessage 内部有批量拉取优化，比 FetchMessage 更高效
@@ -302,6 +328,13 @@ func (b *BusImplKafka) readLoop() {
 			logger.Errorf("Failed to read message from Kafka: %v", err)
 			time.Sleep(time.Second) // 短暂休眠后重试
 			continue
+		}
+
+		// 记录第一条消息的延迟，帮助诊断
+		if firstMessage {
+			logger.Infof("Kafka read loop: received FIRST message after %v (read took %v, partition=%d, offset=%d)",
+				time.Since(loopStartTime), time.Since(readStartTime), msg.Partition, msg.Offset)
+			firstMessage = false
 		}
 
 		// 将读取到的消息发送到 chanIn（非阻塞，优先处理消息）
@@ -320,6 +353,8 @@ func (b *BusImplKafka) messageWorker(workerId int) {
 	defer b.wg.Done()
 
 	logger.Infof("Kafka message worker %d started", workerId)
+	firstMessage := true
+	workerStartTime := time.Now()
 
 	for {
 		select {
@@ -331,6 +366,14 @@ func (b *BusImplKafka) messageWorker(workerId int) {
 				logger.Infof("Kafka message worker %d: chanIn closed", workerId)
 				return
 			}
+
+			// 记录第一条消息的处理时间
+			if firstMessage {
+				logger.Infof("Kafka message worker %d: processing FIRST message after %v",
+					workerId, time.Since(workerStartTime))
+				firstMessage = false
+			}
+
 			b.handleReceivedMessage(msg)
 		}
 	}
