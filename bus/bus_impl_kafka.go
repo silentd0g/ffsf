@@ -1,5 +1,19 @@
 package bus
 
+// BusImplKafka - Kafka 消息总线实现
+//
+// 设计策略：
+// 1. 使用 Partition 模式（不使用 Consumer Group）
+//    - 优点：启动极快（< 1秒），无 rebalance 延迟
+//    - 缺点：Offset 不持久化，重启后从 LastOffset 开始, 自动确认，消费后即视为完成
+//
+// 2. 性能优化
+//    - 应用层批量发送（最多 100 条/批）
+//    - 并发消费（默认 4 个 worker）
+//    - 异步写入，不阻塞主循环
+//
+// 适用场景：追求快速启动，可接受重启丢消息的实时通信场景
+
 import (
 	"context"
 	"fmt"
@@ -8,7 +22,6 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/silentd0g/ffsf/logger"
-	"github.com/silentd0g/ffsf/sharedstruct"
 )
 
 type BusImplKafka struct {
@@ -19,7 +32,6 @@ type BusImplKafka struct {
 	chanAck         chan kafkaAckMsg
 	chanIn          chan kafka.Message // 新增：用于接收 Kafka 消息的 channel
 	onRecv          MsgHandler
-	autoAck         bool
 	kafkaAddrs      []string
 	reader          *kafka.Reader // 单分区 reader
 	writer          *kafka.Writer
@@ -30,8 +42,6 @@ type BusImplKafka struct {
 	ackMapMutex     sync.RWMutex
 	closed          bool
 	closeMutex      sync.RWMutex
-	ackSeq          uint64 // 用于生成唯一的 queueTag
-	ackSeqMutex     sync.Mutex
 	consumerWorkers int // 并发消费者数量
 }
 
@@ -53,33 +63,10 @@ func NewBusImplKafka(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string
 	impl.chanAck = make(chan kafkaAckMsg, 10000)
 	impl.chanIn = make(chan kafka.Message, 10000) // 初始化接收消息的 channel
 	impl.onRecv = onRecvMsg
-	impl.autoAck = true
 	impl.kafkaAddrs = kafkaAddrs
 	impl.ackMap = make(map[uint64]ackMapEntry)
 	impl.ctx, impl.cancel = context.WithCancel(context.Background())
 	impl.closed = false
-	impl.ackSeq = 0
-	impl.consumerWorkers = 4 // 默认4个并发消费者
-
-	go impl.run()
-	return impl
-}
-
-func NewBusImplKafkaManualAck(selfBusId uint32, onRecvMsg MsgHandler, kafkaAddrs []string) *BusImplKafka {
-	impl := new(BusImplKafka)
-	impl.selfBusId = selfBusId
-	impl.topic = calcTopicNameKafka(selfBusId)
-	impl.timeout = 3 * time.Second
-	impl.chanOut = make(chan outMsg, 10000)
-	impl.chanAck = make(chan kafkaAckMsg, 10000)
-	impl.chanIn = make(chan kafka.Message, 10000) // 初始化接收消息的 channel
-	impl.onRecv = onRecvMsg
-	impl.autoAck = false
-	impl.kafkaAddrs = kafkaAddrs
-	impl.ackMap = make(map[uint64]ackMapEntry)
-	impl.ctx, impl.cancel = context.WithCancel(context.Background())
-	impl.closed = false
-	impl.ackSeq = 0
 	impl.consumerWorkers = 4 // 默认4个并发消费者
 
 	go impl.run()
@@ -224,9 +211,9 @@ func (b *BusImplKafka) initKafkaWriter() error {
 }
 
 func (b *BusImplKafka) initKafkaReader() error {
-	// 【重要优化】使用 Partition 模式而不是 Consumer Group 模式
-	// 优点：启动快（< 1秒），无 rebalance 延迟
-	// 只消费 partition 0（假设 topic 只有一个分区）
+	// 使用 Partition 模式，追求快速启动
+	// 注意：不使用 Consumer Group，offset 不持久化，重启后从 LastOffset 开始
+	// 适用场景：实时消息、可接受丢失重启期间的消息
 
 	logger.Infof("Kafka reader initializing (partition mode, no consumer group) for topic: %s...", b.topic)
 	warmupStart := time.Now()
@@ -234,16 +221,16 @@ func (b *BusImplKafka) initKafkaReader() error {
 	b.reader = kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   b.kafkaAddrs,
 		Topic:     b.topic,
-		Partition: 0, // 固定使用 partition 0
-		// 不设置 GroupID - 这是关键！不使用 Consumer Group 就不会有 rebalance
+		Partition: 0, // 固定使用 partition 0（假设 topic 只有一个分区）
+		// 不设置 GroupID - 极速启动，无 Consumer Group rebalance 延迟
 		MinBytes:       1,
 		MaxBytes:       10e6, // 10MB
 		MaxWait:        100 * time.Millisecond,
-		StartOffset:    kafka.LastOffset, // 从最新消息开始（新消费者）
-		CommitInterval: 0,                // 禁用自动提交
+		StartOffset:    kafka.LastOffset, // 每次启动从最新消息开始
+		CommitInterval: 0,                // 无意义（Partition 模式不支持 commit）
 	})
 
-	logger.Infof("Kafka reader ready (took %v): topic=%s, partition=0",
+	logger.Infof("Kafka reader ready (took %v): topic=%s, mode=partition, partition=0",
 		time.Since(warmupStart), b.topic)
 
 	return nil
@@ -416,18 +403,17 @@ func (b *BusImplKafka) process() error {
 				return fmt.Errorf("chanAck of bus is closed")
 			}
 
+			// Partition 模式：Ack 操作仅从 ackMap 中删除记录
+			// 注意：Offset 不会被持久化，这只是应用层的确认机制
 			b.ackMapMutex.RLock()
 			entry, exists := b.ackMap[ackMsg.queueTag]
 			b.ackMapMutex.RUnlock()
 
 			if exists {
-				// 注意：Partition 模式下不使用 CommitMessages（无 Consumer Group）
-				// Ack 操作仅从 ackMap 中删除记录即可
-				// Offset 由 Kafka 自动管理（每次从 LastOffset 开始）
 				b.ackMapMutex.Lock()
 				delete(b.ackMap, ackMsg.queueTag)
 				b.ackMapMutex.Unlock()
-				logger.Debugf("Acked message {queueTag:%d, partition:%d, offset:%d}",
+				logger.Debugf("Acked message (memory only) {queueTag:%d, partition:%d, offset:%d}",
 					ackMsg.queueTag, entry.msg.Partition, entry.msg.Offset)
 			} else {
 				logger.Warningf("Ack message not found in ackMap {queueTag:%d}", ackMsg.queueTag)
@@ -482,33 +468,7 @@ func (b *BusImplKafka) handleReceivedMessage(msg kafka.Message) {
 		recvData := make([]byte, len(msg.Value)-byteLenOfBusPacketHeader())
 		copy(recvData, msg.Value[byteLenOfBusPacketHeader():])
 
-		// 如果是手动确认模式，将消息存储到 ackMap 中
-		if !b.autoAck {
-			// 生成唯一的 queueTag
-			b.ackSeqMutex.Lock()
-			b.ackSeq++
-			queueTag := b.ackSeq
-			b.ackSeqMutex.Unlock()
-
-			b.ackMapMutex.Lock()
-			b.ackMap[queueTag] = ackMapEntry{
-				msg:       msg,
-				timestamp: time.Now(),
-			}
-			b.ackMapMutex.Unlock()
-
-			// 设置 queueTag 到 packet header 的 extra 字段
-			packetHeader := new(sharedstruct.SSPacketHeader)
-			packetHeader.From(recvData)
-			packetHeader.Extra = queueTag
-			packetHeader.To(recvData)
-		}
-
 		b.onRecv(header.srcBusId, recvData)
-
-		// 注意：Partition 模式下不使用 CommitMessages
-		// autoAck 模式下，消息处理完即视为已确认
-		// 重启后从 LastOffset 开始，只接收新消息
 	}
 }
 
