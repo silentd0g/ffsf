@@ -215,8 +215,11 @@ func (b *BusImplKafka) initKafkaWriter() error {
 	b.writer = &kafka.Writer{
 		Addr:         kafka.TCP(b.kafkaAddrs...),
 		Balancer:     &kafka.LeastBytes{},
-		BatchTimeout: 10 * time.Millisecond,
-		BatchSize:    100,
+		BatchTimeout: 10 * time.Millisecond, // 批量等待时间
+		BatchSize:    100,                   // 批量大小
+		Async:        true,                  // 异步写入，不阻塞
+		RequiredAcks: kafka.RequireOne,      // 只需要 leader 确认，提高性能
+		Compression:  kafka.Snappy,          // 启用压缩，提高网络效率
 	}
 	return nil
 }
@@ -357,22 +360,43 @@ func (b *BusImplKafka) process() error {
 				return fmt.Errorf("chanOut of bus is closed")
 			}
 
-			logger.Debugf("Send message to Kafka. {dstBusId:0x%x, dataLen:%v}", msgOut.busId, len(msgOut.data))
-
-			kafkaMsg := kafka.Message{
+			// 批量收集消息以提高吞吐量
+			kafkaMsgs := make([]kafka.Message, 0, 100)
+			kafkaMsgs = append(kafkaMsgs, kafka.Message{
 				Topic: calcTopicNameKafka(msgOut.busId),
 				Value: msgOut.data,
+			})
+
+			// 非阻塞地尝试收集更多消息（最多99条，因为已有1条）
+		collectMore:
+			for i := 0; i < 99; i++ {
+				select {
+				case msgOut2, ok := <-b.chanOut:
+					if !ok {
+						return fmt.Errorf("chanOut of bus is closed")
+					}
+					kafkaMsgs = append(kafkaMsgs, kafka.Message{
+						Topic: calcTopicNameKafka(msgOut2.busId),
+						Value: msgOut2.data,
+					})
+				default:
+					// chanOut 暂时没有更多消息，跳出收集循环
+					break collectMore
+				}
 			}
 
+			logger.Debugf("Send batch messages to Kafka. {batchSize:%v}", len(kafkaMsgs))
+
+			// 批量写入消息（Async=true 时不会阻塞）
 			ctx, cancel := context.WithTimeout(b.ctx, b.timeout)
-			err := b.writer.WriteMessages(ctx, kafkaMsg)
+			err := b.writer.WriteMessages(ctx, kafkaMsgs...)
 			cancel()
 
 			if err != nil {
-				logger.Errorf("Failed to publish a message. {busId:%v, dataLen:%v, err:%v}",
-					msgOut.busId, len(msgOut.data), err)
+				logger.Errorf("Failed to publish batch messages. {batchSize:%v, err:%v}",
+					len(kafkaMsgs), err)
 				// 发送失败返回错误，触发重连
-				return fmt.Errorf("failed to write message: %v", err)
+				return fmt.Errorf("failed to write messages: %v", err)
 			}
 
 		case ackMsg, ok := <-b.chanAck:
