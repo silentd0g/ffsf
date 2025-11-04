@@ -118,6 +118,16 @@ func (t *Transaction) CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Mes
 	return t.waitRsp(svrType, 0, cmd, time.Second*3, req, rsp)
 }
 
+func (t *Transaction) CallMsgBySvrTypeOtherUID(svrType uint32, uid uint64, cmd uint32, req proto.Message, rsp proto.Message) error {
+	t.sendSeq += 1
+	err := router.SendPbMsgBySvrType(svrType, uid, cmd, t.sendSeq, t.TransID(), req)
+	if err != nil {
+		t.Errorf("%v", err)
+		return err
+	}
+	return t.waitRsp(svrType, 0, cmd, time.Second*3, req, rsp)
+}
+
 func (t *Transaction) SendMsgBySvrType(svrType uint32, cmd uint32, req proto.Message) error {
 	t.sendSeq += 1
 	err := router.SendPbMsgBySvrType(svrType, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
