@@ -11,6 +11,7 @@ type IContext interface {
 	ParseMsg(data []byte, msg proto.Message) error
 
 	CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Message, rsp proto.Message) error
+	CallMsgBySvrTypeOtherUID(svrType uint32, uid uint64, cmd uint32, req proto.Message, rsp proto.Message) error
 	SendMsgBySvrType(svrType uint32, cmd uint32, req proto.Message) error
 	SendPbMsgByBusId(busId uint32, cmd uint32, req proto.Message) error
 	SendMsgBack(pbMsg proto.Message)
