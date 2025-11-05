@@ -35,7 +35,7 @@ func NowNano() int64 {
 }
 
 func TimeFromUnix(t int32) time.Time {
-	return time.Unix(int64(t), 0)
+	return time.Unix(int64(t), 0).Local()
 }
 
 func IsSameMinute(t1, t2 int32) bool {
@@ -47,31 +47,36 @@ func IsSameHour(t1, t2 int32) bool {
 }
 
 func IsSameDay(t1, t2 int32) bool {
-	return t1/SECONDS_PER_DAY == t2/SECONDS_PER_DAY
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
+	y1, m1, d1 := tt1.Date()
+	y2, m2, d2 := tt2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 func IsSameWeek(t1, t2 int32) bool {
-	tt1 := time.Unix(int64(t1), int64(t1*1000))
-	tt2 := time.Unix(int64(t2), int64(t2*1000))
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
 	y1, w1 := tt1.ISOWeek()
 	y2, w2 := tt2.ISOWeek()
 	return y1 == y2 && w1 == w2
 }
 
 func IsSameMonth(t1, t2 int32) bool {
-	tt1 := time.Unix(int64(t1), int64(t1*1000))
-	tt2 := time.Unix(int64(t2), int64(t2*1000))
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
 	return tt1.Year() == tt2.Year() && tt1.Month() == tt2.Month()
 }
 
 func GetDayOfMonth(t1 int32) int {
-	tt1 := time.Unix(int64(t1), int64(t1*1000))
+	tt1 := time.Unix(int64(t1), 0).Local()
 	_, _, day := tt1.Date()
 	return day
 }
 
 func BeginTimeOfToday() int32 {
-	now := Now()
-	left := now % SECONDS_PER_DAY
-	return now - left
+	now := time.Now().Local()
+	y, m, d := now.Date()
+	beginTime := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	return int32(beginTime.Unix())
 }
