@@ -133,6 +133,10 @@ func (s *WsServer) InitAndRun(ip string, port int, handler IWsServerEventHandler
 	s.handler = handler
 
 	http.HandleFunc("/", s.WsHandler)
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
+	})
 	addr := ip + ":" + strconv.Itoa(port)
 	if useTls {
 		logger.Infof("Listening with TLS. {addr:%s, certFile:%s, keyFile:%s}", addr, certFile, keyFile)
