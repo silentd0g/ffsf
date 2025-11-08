@@ -23,6 +23,7 @@ const (
 	SvrRouterRule_Random = 1 + iota // 随机路由
 	SvrRouterRule_UID               // 根据UID取模来选择路由
 	SvrRouterRule_Master            // 永远选择第一个
+	SvrRouterRule_ExtId             // 根据ExtId取模来选择路由
 )
 
 type ServerInstanceMgr struct {
@@ -75,7 +76,7 @@ func (s *ServerInstanceMgr) Close() {
 }
 
 // 根据ServerType和预先设定的RouterRule，获取一个ServerInstance
-func (s *ServerInstanceMgr) GetSvrInsBySvrType(serverType uint32, uid uint64) uint32 {
+func (s *ServerInstanceMgr) GetSvrInsBySvrType(serverType uint32, uid uint64, extId uint32) uint32 {
 	if rule, in := s.routeRules[serverType]; in {
 		switch rule {
 		case SvrRouterRule_Random:
@@ -84,6 +85,8 @@ func (s *ServerInstanceMgr) GetSvrInsBySvrType(serverType uint32, uid uint64) ui
 			return s.getSvrInsByUID(serverType, uid)
 		case SvrRouterRule_Master:
 			return s.getSvrInsByMaster(serverType)
+		case SvrRouterRule_ExtId:
+			return s.getSvrInsByExtId(serverType, extId)
 		default:
 			logger.Errorf("Wrong svr router config. {serverType:%d}", serverType)
 		}
@@ -283,4 +286,17 @@ func (s *ServerInstanceMgr) getSvrInsByMaster(svrType uint32) uint32 {
 	}
 
 	return svrs[0]
+}
+
+// 根据ExtId获取一个svr，这里对extId取模
+func (s *ServerInstanceMgr) getSvrInsByExtId(svrType uint32, extId uint32) uint32 {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	svrs := s.mapSvrTypeToIns[svrType]
+	if len(svrs) == 0 {
+		return 0
+	}
+
+	return svrs[extId%uint32(len(svrs))]
 }

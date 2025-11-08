@@ -19,13 +19,10 @@ type SSPacketHeader struct {
 	SrcTransID uint32
 	DstTransID uint32
 
-	Uid uint64
+	Uid   uint64
+	ExtId uint32
 
-	Cmd  uint32
-	Zone uint32
-
-	Ip   uint32
-	Flag uint32
+	Cmd uint32
 
 	BodyLen uint32
 	CmdSeq  uint32 // Request时+1，Response时不变。用以标识收到的Response是对应哪个发出的Request
@@ -34,7 +31,7 @@ type SSPacketHeader struct {
 }
 
 func ByteLenOfSSPacketHeader() int {
-	return 56
+	return 48
 }
 
 func (h *SSPacketHeader) To(b []byte) error {
@@ -53,13 +50,9 @@ func (h *SSPacketHeader) To(b []byte) error {
 	pos += 4
 	binary.BigEndian.PutUint64(b[pos:], h.Uid)
 	pos += 8
+	binary.BigEndian.PutUint32(b[pos:], h.ExtId)
+	pos += 4
 	binary.BigEndian.PutUint32(b[pos:], h.Cmd)
-	pos += 4
-	binary.BigEndian.PutUint32(b[pos:], h.Zone)
-	pos += 4
-	binary.BigEndian.PutUint32(b[pos:], h.Ip)
-	pos += 4
-	binary.BigEndian.PutUint32(b[pos:], h.Flag)
 	pos += 4
 	binary.BigEndian.PutUint32(b[pos:], h.BodyLen)
 	pos += 4
@@ -87,13 +80,9 @@ func (h *SSPacketHeader) From(b []byte) error {
 	pos += 4
 	h.Uid = binary.BigEndian.Uint64(b[pos:])
 	pos += 8
+	h.ExtId = binary.BigEndian.Uint32(b[pos:])
+	pos += 4
 	h.Cmd = binary.BigEndian.Uint32(b[pos:])
-	pos += 4
-	h.Zone = binary.BigEndian.Uint32(b[pos:])
-	pos += 4
-	h.Ip = binary.BigEndian.Uint32(b[pos:])
-	pos += 4
-	h.Flag = binary.BigEndian.Uint32(b[pos:])
 	pos += 4
 	h.BodyLen = binary.BigEndian.Uint32(b[pos:])
 	pos += 4

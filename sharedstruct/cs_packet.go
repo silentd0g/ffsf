@@ -15,11 +15,9 @@ type CSPacketHeader struct {
 	PassCode uint32
 	Seq      uint32
 	Uid      uint64
-	//Zone uint32
-	//Ip uint32
-	AppVersion uint32
-	Cmd        uint32
-	BodyLen    uint32
+	ExtId    uint32
+	Cmd      uint32
+	BodyLen  uint32
 }
 
 func ByteLenOfCSPacketHeader() int {
@@ -40,9 +38,7 @@ func (h *CSPacketHeader) From(b []byte) {
 	pos += 4
 	h.Uid = binary.BigEndian.Uint64(b[pos:])
 	pos += 8
-	//h.Zone = binary.BigEndian.Uint32(b[pos:]); pos += 4
-	//h.Ip = binary.BigEndian.Uint32(b[pos:]); pos += 4
-	h.AppVersion = binary.BigEndian.Uint32(b[pos:])
+	h.ExtId = binary.BigEndian.Uint32(b[pos:])
 	pos += 4
 	h.Cmd = binary.BigEndian.Uint32(b[pos:])
 	pos += 4
@@ -60,9 +56,7 @@ func (h *CSPacketHeader) To(b []byte) {
 	pos += 4
 	binary.BigEndian.PutUint64(b[pos:], h.Uid)
 	pos += 8
-	//binary.BigEndian.PutUint32(b[pos:], h.Zone); pos += 4
-	//binary.BigEndian.PutUint32(b[pos:], h.Ip); pos += 4
-	binary.BigEndian.PutUint32(b[pos:], h.AppVersion)
+	binary.BigEndian.PutUint32(b[pos:], h.ExtId)
 	pos += 4
 	binary.BigEndian.PutUint32(b[pos:], h.Cmd)
 	pos += 4

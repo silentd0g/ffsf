@@ -69,7 +69,7 @@ func (m *TransactionMgr) ProcessSSPacket(packet *sharedstruct.SSPacket) {
 }
 
 // 发给自己（SelfBusId）的消息直接调用ProcessSSPacket，而不到网络上转一圈
-func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message) {
+func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, extId uint32, cmd uint32, pbMsg proto.Message) {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
 		logger.Errorf("Failed to SendMsgToMyself. {uid:%v, cmd:0x%x, err:%s}", uid, cmd, err.Error())
@@ -83,10 +83,8 @@ func (m *TransactionMgr) SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uin
 			SrcTransID: 0,
 			DstTransID: 0,
 			Uid:        uid,
+			ExtId:      extId,
 			Cmd:        cmd,
-			Zone:       0,
-			Ip:         0,
-			Flag:       0,
 			BodyLen:    uint32(len(data)),
 			CmdSeq:     0,
 		},

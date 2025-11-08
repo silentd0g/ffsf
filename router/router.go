@@ -136,7 +136,7 @@ func SendMQAck(queueTag uint64) error {
 	return nil
 }
 
-func SendMsgByBusId(busId uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
+func SendMsgByBusId(busId uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
 	if busId == 0 {
 		return fmt.Errorf("server instance is 0, fail to send {busId: %v, uid: %v, cmd: 0x%x}", busId, uid, cmd)
 	}
@@ -147,6 +147,7 @@ func SendMsgByBusId(busId uint32, uid uint64, cmd uint32, sendSeq uint32, srcTra
 		SrcTransID: srcTransId,
 		DstTransID: 0,
 		Uid:        uid,
+		ExtId:      extId,
 		Cmd:        cmd,
 		BodyLen:    uint32(len(data)),
 		CmdSeq:     sendSeq,
@@ -157,58 +158,58 @@ func SendMsgByBusId(busId uint32, uid uint64, cmd uint32, sendSeq uint32, srcTra
 	return SendMsg(&packetHeader, data)
 }
 
-func SendPbMsgByBusId(busId uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, pbMsg proto.Message) error {
+func SendPbMsgByBusId(busId uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, srcTransId uint32, pbMsg proto.Message) error {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
 		return err
 	}
-	return SendMsgByBusId(busId, uid, cmd, sendSeq, srcTransId, data)
+	return SendMsgByBusId(busId, uid, extId, cmd, sendSeq, srcTransId, data)
 }
 
 func SendPbMsgByBusIdSimple(busId uint32, uid uint64, cmd uint32, pbMsg proto.Message) error {
-	return SendPbMsgByBusId(busId, uid, cmd, 0, 0, pbMsg)
+	return SendPbMsgByBusId(busId, uid, 0, cmd, 0, 0, pbMsg)
 }
 
-func SendMsgBySvrType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
-	dstBusId := severInstanceMgr.GetSvrInsBySvrType(svrType, uid)
+func SendMsgBySvrType(svrType uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, srcTransId uint32, data []byte) error {
+	dstBusId := severInstanceMgr.GetSvrInsBySvrType(svrType, uid, extId)
 	if dstBusId == 0 {
 		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: 0x%x}", svrType, uid, cmd)
 	}
 
-	return SendMsgByBusId(dstBusId, uid, cmd, sendSeq, srcTransId, data)
+	return SendMsgByBusId(dstBusId, uid, extId, cmd, sendSeq, srcTransId, data)
 }
 
-func SendPbMsgBySvrType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, srcTransId uint32, pbMsg proto.Message) error {
+func SendPbMsgBySvrType(svrType uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, srcTransId uint32, pbMsg proto.Message) error {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
 		return err
 	}
-	return SendMsgBySvrType(svrType, uid, cmd, sendSeq, srcTransId, data)
+	return SendMsgBySvrType(svrType, uid, extId, cmd, sendSeq, srcTransId, data)
 }
 
 func SendPbMsgBySvrTypeSimple(svrType uint32, uid uint64, cmd uint32, pbMsg proto.Message) error {
-	return SendPbMsgBySvrType(svrType, uid, cmd, 0, 0, pbMsg)
+	return SendPbMsgBySvrType(svrType, uid, 0, cmd, 0, 0, pbMsg)
 }
 
-func BroadcastMsgByServerType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, data []byte) error {
+func BroadcastMsgByServerType(svrType uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, data []byte) error {
 	instances := severInstanceMgr.GetAllSvrInsBySvrType(svrType)
 	if len(instances) == 0 {
 		return fmt.Errorf("cannot get a server instance to send {svrType: %v, uid: %v, cmd: 0x%x}", svrType, uid, cmd)
 	}
 
 	for _, inst := range instances {
-		SendMsgByBusId(inst, uid, cmd, sendSeq, 0, data)
+		SendMsgByBusId(inst, uid, extId, cmd, sendSeq, 0, data)
 	}
 
 	return nil
 }
 
-func BroadcastPbMsgByServerType(svrType uint32, uid uint64, cmd uint32, sendSeq uint32, pbMsg proto.Message) error {
+func BroadcastPbMsgByServerType(svrType uint32, uid uint64, extId uint32, cmd uint32, sendSeq uint32, pbMsg proto.Message) error {
 	data, err := proto.Marshal(pbMsg)
 	if err != nil {
 		return err
 	}
-	return BroadcastMsgByServerType(svrType, uid, cmd, sendSeq, data)
+	return BroadcastMsgByServerType(svrType, uid, extId, cmd, sendSeq, data)
 }
 
 func SendMsgBack(originalHeader sharedstruct.SSPacketHeader, srcTransId uint32, pbMsg proto.Message) {
@@ -218,6 +219,7 @@ func SendMsgBack(originalHeader sharedstruct.SSPacketHeader, srcTransId uint32, 
 		SrcTransID: srcTransId,
 		DstTransID: originalHeader.SrcTransID,
 		Uid:        originalHeader.Uid,
+		ExtId:      originalHeader.ExtId,
 		Cmd:        originalHeader.Cmd + 1,
 		CmdSeq:     originalHeader.CmdSeq,
 	}

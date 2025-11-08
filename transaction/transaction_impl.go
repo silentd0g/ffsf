@@ -80,6 +80,10 @@ func (t *Transaction) Uid() uint64 {
 	return t.OriPacketHeader.Uid
 }
 
+func (t *Transaction) ExtId() uint32 {
+	return t.OriPacketHeader.ExtId
+}
+
 func (t *Transaction) Cmd() uint32 {
 	return t.OriPacketHeader.Cmd
 }
@@ -109,7 +113,7 @@ func (t *Transaction) SendMsgBack(pbMsg proto.Message) {
 func (t *Transaction) CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Message, rsp proto.Message) error {
 	//t.DebugDepthf(1, "CallMsgBySvrType: %#v", req)
 	t.sendSeq += 1
-	err := router.SendPbMsgBySvrType(svrType, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
+	err := router.SendPbMsgBySvrType(svrType, t.Uid(), t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
 		t.Errorf("%v", err)
 		return err
@@ -120,7 +124,7 @@ func (t *Transaction) CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Mes
 
 func (t *Transaction) CallMsgBySvrTypeOtherUID(svrType uint32, uid uint64, cmd uint32, req proto.Message, rsp proto.Message) error {
 	t.sendSeq += 1
-	err := router.SendPbMsgBySvrType(svrType, uid, cmd, t.sendSeq, t.TransID(), req)
+	err := router.SendPbMsgBySvrType(svrType, uid, t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
 		t.Errorf("%v", err)
 		return err
@@ -130,7 +134,7 @@ func (t *Transaction) CallMsgBySvrTypeOtherUID(svrType uint32, uid uint64, cmd u
 
 func (t *Transaction) SendMsgBySvrType(svrType uint32, cmd uint32, req proto.Message) error {
 	t.sendSeq += 1
-	err := router.SendPbMsgBySvrType(svrType, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
+	err := router.SendPbMsgBySvrType(svrType, t.Uid(), t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
 		t.Errorf("%v", err)
 		return err
@@ -140,7 +144,7 @@ func (t *Transaction) SendMsgBySvrType(svrType uint32, cmd uint32, req proto.Mes
 
 func (t *Transaction) SendPbMsgByBusId(busId uint32, cmd uint32, req proto.Message) error {
 	t.sendSeq += 1
-	err := router.SendPbMsgByBusId(busId, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
+	err := router.SendPbMsgByBusId(busId, t.Uid(), t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
 		t.Errorf("%v", err)
 		return err
@@ -151,7 +155,7 @@ func (t *Transaction) SendPbMsgByBusId(busId uint32, cmd uint32, req proto.Messa
 func (t *Transaction) BroadcastByServerType(svrType uint32, cmd uint32, req proto.Message) error {
 	t.Debugf("BroadcastByServerType: %#v", req)
 	t.sendSeq += 1
-	err := router.BroadcastPbMsgByServerType(svrType, t.Uid(), cmd, t.sendSeq, req)
+	err := router.BroadcastPbMsgByServerType(svrType, t.Uid(), t.ExtId(), cmd, t.sendSeq, req)
 	if err != nil {
 		t.Errorf("%v", err)
 	}
@@ -161,7 +165,7 @@ func (t *Transaction) BroadcastByServerType(svrType uint32, cmd uint32, req prot
 func (t *Transaction) CallMsgByBusId(busId uint32, cmd uint32, req proto.Message, rsp proto.Message) error {
 	t.Debugf("CallMsgByBusId: %#v", req)
 	t.sendSeq += 1
-	err := router.SendPbMsgByBusId(busId, t.Uid(), cmd, t.sendSeq, t.TransID(), req)
+	err := router.SendPbMsgByBusId(busId, t.Uid(), t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
 		t.Errorf("%v", err)
 		return err

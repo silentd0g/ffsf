@@ -17,5 +17,5 @@ type ITransactionMgr interface {
 
 	RegisterCmd(cmd uint32, cmdHandler cmd_handler.ICmdHandler)
 	ProcessSSPacket(packet *sharedstruct.SSPacket)
-	SendPbMsgToMyself(selfBusId uint32, uid uint64, cmd uint32, pbMsg proto.Message)
+	SendPbMsgToMyself(selfBusId uint32, uid uint64, extId uint32, cmd uint32, pbMsg proto.Message)
 }
