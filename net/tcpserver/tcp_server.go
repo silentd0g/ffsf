@@ -3,13 +3,14 @@ package tcpserver
 import (
 	"bytes"
 	"fmt"
-	"github.com/golang/glog"
-	"github.com/silentd0g/ffsf/logger"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/golang/glog"
+	"github.com/silentd0g/ffsf/logger"
 )
 
 const (
@@ -34,6 +35,12 @@ type TcpSvr struct {
 
 	lockOfConnInfo sync.RWMutex
 	mapOfConnInfo  map[net.Conn]TcpConnInfo
+
+	rejectNewConn bool // 是否拒绝新连接
+}
+
+func (s *TcpSvr) SetRejectNewConn(rejectNewConn bool) {
+	s.rejectNewConn = rejectNewConn
 }
 
 func (s *TcpSvr) InitAndRun(ip string, port int, handler ITcpSvrEventHandler) error {
@@ -118,6 +125,11 @@ func (s *TcpSvr) runListener(listener net.Listener) {
 	defer listener.Close()
 
 	for {
+		if s.rejectNewConn {
+			logger.Debugf("Reject new connection.")
+			return
+		}
+
 		conn, err := listener.Accept()
 		if err != nil {
 			logger.Errorf("Error accepting. {err:%v}", err)

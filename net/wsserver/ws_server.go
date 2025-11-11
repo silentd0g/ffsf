@@ -39,6 +39,12 @@ type WsServer struct {
 	handler IWsServerEventHandler
 	Clients map[*websocket.Conn]ClientInfo
 	Mu      sync.RWMutex
+
+	rejectNewConn bool // 是否拒绝新连接
+}
+
+func (s *WsServer) SetRejectNewConn(rejectNewConn bool) {
+	s.rejectNewConn = rejectNewConn
 }
 
 func (s *WsServer) WriteData(c *websocket.Conn, data1, data2 []byte) error {
@@ -95,6 +101,11 @@ func (s *WsServer) Close(c *websocket.Conn) error {
 }
 
 func (s *WsServer) WsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.rejectNewConn {
+		logger.Debugf("Reject new connection. {remote:%v}")
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Debugf("Upgrade failed. {err:%v, local:%v, remote:%v}", err, conn.LocalAddr(), conn.RemoteAddr())
