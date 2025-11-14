@@ -5,7 +5,8 @@ package bus
 // 设计策略：
 // 1. 使用 Partition 模式（不使用 Consumer Group）
 //    - 优点：启动极快（< 1秒），无 rebalance 延迟
-//    - 缺点：Offset 不持久化，重启后从 LastOffset 开始, 自动确认，消费后即视为完成
+//    - 缺点：Offset 不持久化，重启后通过 SetOffset(LastOffset) 从最新消息开始
+//    - 注意：StartOffset 配置在 Partition 模式下无效，必须手动调用 SetOffset
 //
 // 2. 性能优化
 //    - 应用层批量发送（最多 100 条/批）
@@ -223,14 +224,20 @@ func (b *BusImplKafka) initKafkaReader() error {
 		Topic:     b.topic,
 		Partition: 0, // 固定使用 partition 0（假设 topic 只有一个分区）
 		// 不设置 GroupID - 极速启动，无 Consumer Group rebalance 延迟
-		MinBytes:       1,
-		MaxBytes:       10e6, // 10MB
-		MaxWait:        100 * time.Millisecond,
-		StartOffset:    kafka.LastOffset, // 每次启动从最新消息开始
-		CommitInterval: 0,                // 无意义（Partition 模式不支持 commit）
+		MinBytes: 1,
+		MaxBytes: 10e6, // 10MB
+		MaxWait:  100 * time.Millisecond,
+		// 注意：StartOffset 配置仅在 Consumer Group 模式下有效，Partition 模式下会被忽略
+		CommitInterval: 0, // 无意义（Partition 模式不支持 commit）
 	})
 
-	logger.Infof("Kafka reader ready (took %v): topic=%s, mode=partition, partition=0",
+	// 手动设置从最新消息开始消费（Partition 模式下必须通过 SetOffset 设置）
+	if err := b.reader.SetOffset(kafka.LastOffset); err != nil {
+		b.reader.Close()
+		return fmt.Errorf("failed to set offset to LastOffset: %v", err)
+	}
+
+	logger.Infof("Kafka reader ready (took %v): topic=%s, mode=partition, partition=0, offset=LastOffset",
 		time.Since(warmupStart), b.topic)
 
 	return nil

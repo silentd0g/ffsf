@@ -152,10 +152,10 @@ func (m *TransactionMgr) processSSPacket(packet *sharedstruct.SSPacket) int32 {
 				packets = make([]*sharedstruct.SSPacket, 0)
 			}
 			if len(packets) >= m.maxUidPendingPacket {
-				logger.Errorf("Drop a packet for uid lock. {packet:%#v}", packet)
+				logger.Errorf("Drop a packet for uid lock. {packetHeader:%#v}", packet.Header)
 				return -1
 			} else {
-				logger.Debugf("Pending a packet. {uid:%v, packet:%#v}", uid, packet)
+				logger.Debugf("Pending a packet. {uid:%v, packetHeader:%#v}", uid, packet.Header)
 				m.uidPendingPackets[uid] = append(packets, packet)
 				return 0
 			}

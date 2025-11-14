@@ -208,7 +208,7 @@ func (s *ServerInstanceMgr) refreshNode(children []string) {
 	for _, child := range children {
 		busID, _, _, severType, _ := bus.ParseBusID(child)
 		s.mapSvrTypeToIns[severType] = append(s.mapSvrTypeToIns[severType], busID)
-		logger.Infof("Add %s to type %d", child, severType)
+		// logger.Infof("Add %s to type %d", child, severType)
 		newIns[busID] = true
 	}
 
