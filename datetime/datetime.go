@@ -62,10 +62,32 @@ func IsSameWeek(t1, t2 int32) bool {
 	return y1 == y2 && w1 == w2
 }
 
+// 判断t2是不是t1的下一周
+func IsNextWeek(t1, t2 int32) bool {
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
+	// 计算 t1 的下一周（加7天）
+	tt1NextWeek := tt1.AddDate(0, 0, 7)
+	y1Next, w1Next := tt1NextWeek.ISOWeek()
+	y2, w2 := tt2.ISOWeek()
+	// 判断 t2 是否与 t1 的下一周在同一周
+	return y2 == y1Next && w2 == w1Next
+}
+
 func IsSameMonth(t1, t2 int32) bool {
 	tt1 := time.Unix(int64(t1), 0).Local()
 	tt2 := time.Unix(int64(t2), 0).Local()
 	return tt1.Year() == tt2.Year() && tt1.Month() == tt2.Month()
+}
+
+// 判断t2是不是t1的下一个月
+func IsNextMonth(t1, t2 int32) bool {
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
+	// 计算 t1 的下一个月
+	tt1NextMonth := tt1.AddDate(0, 1, 0)
+	// 判断 t2 是否与 t1 的下一个月在同一个月
+	return tt2.Year() == tt1NextMonth.Year() && tt2.Month() == tt1NextMonth.Month()
 }
 
 func GetDayOfMonth(t1 int32) int {
