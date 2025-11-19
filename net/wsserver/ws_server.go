@@ -25,7 +25,7 @@ var upgrader = websocket.Upgrader{
 		//		return r.Host == "www.example.com"
 	},
 	Error: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
-		logger.Errorf("websocket upgrade failed. {status=%v, reason=%v}", status, reason)
+		logger.Debugf("websocket upgrade failed. {status=%v, reason=%v}", status, reason)
 		http.Error(w, reason.Error(), status)
 	},
 }
