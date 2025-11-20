@@ -26,6 +26,10 @@ func SelfSvrType() uint32 {
 	return (SelfBusId() >> 8) & 0xff
 }
 
+func GetSvrTypeByBusId(busId uint32) uint32 {
+	return (busId >> 8) & 0xff
+}
+
 // type CbOnRecvSSPacket func(*sharedstruct.SSPacketHeader, []byte)
 type CbOnRecvSSPacket func(*sharedstruct.SSPacket) // frameMsg的所有权，归回调函数
 
