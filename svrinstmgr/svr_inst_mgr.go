@@ -298,5 +298,10 @@ func (s *ServerInstanceMgr) getSvrInsByExtId(svrType uint32, extId uint32) uint3
 		return 0
 	}
 
+	// 如果extId为0，则随机选择一个svr
+	if extId == 0 {
+		return svrs[rand.Int31n(int32(len(svrs)))]
+	}
+
 	return svrs[extId%uint32(len(svrs))]
 }
