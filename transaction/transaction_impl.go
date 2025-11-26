@@ -80,6 +80,10 @@ func (t *Transaction) Uid() uint64 {
 	return t.OriPacketHeader.Uid
 }
 
+func (t *Transaction) SetExtId(extId uint32) {
+	t.OriPacketHeader.ExtId = extId
+}
+
 func (t *Transaction) ExtId() uint32 {
 	return t.OriPacketHeader.ExtId
 }

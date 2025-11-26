@@ -7,6 +7,8 @@ import (
 type IContext interface {
 	Uid() uint64
 	OriSrcBusId() uint32
+	SetExtId(extId uint32)
+	ExtId() uint32
 
 	ParseMsg(data []byte, msg proto.Message) error
 
