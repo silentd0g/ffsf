@@ -143,7 +143,6 @@ func (m *TransactionMgr) processSSPacket(packet *sharedstruct.SSPacket) int32 {
 	uid := packet.Header.Uid
 	dstTransID := packet.Header.DstTransID
 	cmd := packet.Header.Cmd
-	logger.Debugf("Get inner cmd. {header=%#v}", packet.Header)
 
 	if dstTransID == 0 {
 		if m.useUidLock && m.uidInProcess[uid] { // pending or drop
