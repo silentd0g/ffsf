@@ -111,7 +111,6 @@ func (t *Transaction) SendMsgBack(pbMsg proto.Message) {
 }
 
 func (t *Transaction) CallMsgBySvrType(svrType uint32, cmd uint32, req proto.Message, rsp proto.Message) error {
-	//t.DebugDepthf(1, "CallMsgBySvrType: %#v", req)
 	t.sendSeq += 1
 	err := router.SendPbMsgBySvrType(svrType, t.Uid(), t.ExtId(), cmd, t.sendSeq, t.TransID(), req)
 	if err != nil {
