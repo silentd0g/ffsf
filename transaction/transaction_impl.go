@@ -64,11 +64,7 @@ func (t *Transaction) Infof(format string, args ...interface{}) {
 
 func (t *Transaction) Debugf(format string, args ...interface{}) {
 	f := fmt.Sprintf("[%v|%v] %v", t.Uid(), t.TransID(), format)
-	t.DebugDepthf(1, f, args...)
-}
-func (t *Transaction) DebugDepthf(depth int, format string, args ...interface{}) {
-	f := fmt.Sprintf("[%v|%v] %v", t.Uid(), t.TransID(), format)
-	logger.DebugDepthf(1+depth, f, args...)
+	logger.DebugDepthf(1, f, args...)
 }
 
 func (t *Transaction) run(cmdHandler cmd_handler.ICmdHandler, packet *sharedstruct.SSPacket, chanRet chan<- transRet) {
