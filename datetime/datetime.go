@@ -54,6 +54,14 @@ func IsSameDay(t1, t2 int32) bool {
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
+// 判断t2是不是t1的下一天
+func IsNextDay(t1, t2 int32) bool {
+	tt1 := time.Unix(int64(t1), 0).Local()
+	tt2 := time.Unix(int64(t2), 0).Local()
+	tt1NextDay := tt1.AddDate(0, 0, 1)
+	return tt1NextDay.Year() == tt2.Year() && tt1NextDay.Month() == tt2.Month() && tt1NextDay.Day() == tt2.Day()
+}
+
 func IsSameWeek(t1, t2 int32) bool {
 	tt1 := time.Unix(int64(t1), 0).Local()
 	tt2 := time.Unix(int64(t2), 0).Local()
