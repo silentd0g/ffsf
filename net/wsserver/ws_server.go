@@ -102,13 +102,13 @@ func (s *WsServer) Close(c *websocket.Conn) error {
 
 func (s *WsServer) WsHandler(w http.ResponseWriter, r *http.Request) {
 	if s.rejectNewConn {
-		logger.Debugf("Reject new connection. {remote:%v}")
+		logger.Debugf("Reject new connection. {remote:%v}", r.RemoteAddr)
 		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		logger.Debugf("Upgrade failed. {err:%v, local:%v, remote:%v}", err, conn.LocalAddr(), conn.RemoteAddr())
+		logger.Debugf("Upgrade failed. {err:%v, remote:%v}", err, r.RemoteAddr)
 		return
 	}
 
