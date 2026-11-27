@@ -72,7 +72,7 @@ func (h *SSPacketHeader) From(b []byte) error {
 	pos := 0
 	h.SrcBusID = binary.BigEndian.Uint32(b[pos:])
 	pos += 4
-	h.DstTransID = binary.BigEndian.Uint32(b[pos:])
+	h.DstBusID = binary.BigEndian.Uint32(b[pos:])
 	pos += 4
 	h.SrcTransID = binary.BigEndian.Uint32(b[pos:])
 	pos += 4

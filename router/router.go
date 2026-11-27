@@ -114,9 +114,8 @@ func SendMsg(packetHeader *sharedstruct.SSPacketHeader, packetBody []byte) error
 	logger.Debugf("Send bus message: %#v", packetHeader)
 	err := router.busImpl.Send(packetHeader.DstBusID, packetHeader.ToBytes(), packetBody)
 	if err != nil {
-		e := fmt.Sprintf("failed to send bus message {header:%#v, bodyLen:%v} | %v",
+		return fmt.Errorf("failed to send bus message {header:%#v, bodyLen:%v} | %w",
 			packetHeader, len(packetBody), err)
-		return errors.New(e)
 	}
 	return nil
 }
